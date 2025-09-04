@@ -21,13 +21,16 @@ use alloy::{
 use anyhow::{Context, Result};
 use beacon_client::BeaconClient;
 use clap::Parser;
-use ethereum_consensus::phase0::mainnet::{HistoricalBatch, SLOTS_PER_HISTORICAL_ROOT};
+use ethereum_consensus::{
+    phase0::mainnet::{HistoricalBatch, SLOTS_PER_HISTORICAL_ROOT},
+    ssz::prelude::Serialize,
+};
 use lido_oracle_core::{
-    input::Input as OracleInput,
+    input::Input,
     mainnet::{WITHDRAWAL_CREDENTIALS, WITHDRAWAL_VAULT_ADDRESS},
     ETH_SEPOLIA_CHAIN_SPEC,
 };
-use oracle_builder::{MAINNET_ELF as BALANCE_AND_EXITS_ELF, MAINNET_ID as BALANCE_AND_EXITS_ID};
+use oracle_builder::{MAINNET_ELF, MAINNET_ID};
 use risc0_ethereum_contracts::encode_seal;
 use risc0_steel::{ethereum::EthEvmEnv, Account};
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, Receipt, VerifierContext};
@@ -72,12 +75,9 @@ struct Args {
     #[clap(long)]
     slot: u64,
 
-    /// The top validator index proofs  will be extended to.
-    /// If not included it will proceed up to the total number of validators
-    /// in the beacon state at the given slot.
-    /// This does nothing for aggregation proofs which must be run for all validators.
-    #[clap(long)]
-    max_validator_index: Option<u64>,
+    /// Ethereum Node endpoint.
+    #[clap(long, env)]
+    eth_rpc_url: Url,
 
     #[clap(subcommand)]
     command: Command,
@@ -86,6 +86,19 @@ struct Args {
 /// Subcommands of the publisher CLI.
 #[derive(Parser, Debug)]
 enum Command {
+    /// Generate the input needed to generate a proof
+    /// This is to support proof generation using Boundless or Bonsai or other remote proving services
+    GenInput {
+        /// Ethereum beacon node HTTP RPC endpoint.
+        #[clap(long, env)]
+        beacon_rpc_url: Url,
+
+        #[clap(long = "out", short)]
+        out_path: PathBuf,
+
+        #[clap(subcommand)]
+        command: ProveCommand,
+    },
     /// Generate a proof from a given input
     Prove {
         /// Ethereum beacon node HTTP RPC endpoint.
@@ -103,10 +116,6 @@ enum Command {
         /// Eth key to sign with
         #[clap(long, env)]
         eth_wallet_private_key: PrivateKeySigner,
-
-        /// Ethereum Node endpoint.
-        #[clap(long, env)]
-        eth_rpc_url: Url,
 
         /// SecondOpinionOracle contract address
         #[clap(long, env)]
@@ -145,30 +154,61 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     match args.command {
-        Command::Prove {
+        Command::GenInput {
             out_path,
-            command:
+            command,
+            beacon_rpc_url,
+        } => {
+            let input = match command {
+                ProveCommand::Initial => {
+                    build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?
+                }
                 ProveCommand::ContinuationFrom {
                     prior_proof_path,
                     eth_rpc_url,
-                },
+                } => {
+                    todo!();
+                }
+            };
+
+            // write as a frame in the VM stdin format
+            let payload = bincode::serialize(&input)?;
+            let len = payload.len() as u32;
+            let mut vm_stdin = Vec::<u8>::new();
+            vm_stdin.extend_from_slice(&len.to_le_bytes());
+            vm_stdin.extend_from_slice(&payload);
+
+            write(out_path, &bincode::serialize(&vm_stdin)?)?;
+        }
+        Command::Prove {
             beacon_rpc_url,
+            out_path,
+            command,
         } => {
-            let input = build_input(beacon_rpc_url, args.slot, eth_rpc_url).await?;
-            let membership_proof: MembershipProof = bincode::deserialize(&read(prior_proof_path)?)?;
-            let proof = build_proof(input, membership_proof, args.slot).await?;
-            write(out_path, &bincode::serialize(&proof)?)?;
+            let input = match command {
+                ProveCommand::Initial => {
+                    build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?
+                }
+                ProveCommand::ContinuationFrom {
+                    prior_proof_path,
+                    eth_rpc_url,
+                } => {
+                    todo!();
+                }
+            };
+
+            let proof = build_proof(input, args.slot).await?;
+            write(out_path, bincode::serialize(&proof)?)?;
         }
         Command::Submit {
             eth_wallet_private_key,
-            eth_rpc_url,
             contract,
             test_contract,
             proof_path,
         } => {
             submit_proof(
                 eth_wallet_private_key,
-                eth_rpc_url,
+                args.eth_rpc_url,
                 contract,
                 test_contract,
                 proof_path,
@@ -180,82 +220,54 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Wire format for an oracle proof that includes the slot and a receipt.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct MembershipProof {
-    slot: u64,
-    receipt: Receipt,
-}
-
-impl MembershipProof {
-    pub fn new(slot: u64, receipt: Receipt) -> Self {
-        Self { slot, receipt }
-    }
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct AggregateProof {
+struct Proof {
     slot: u64,
     receipt: Receipt,
 }
 
 #[tracing::instrument(skip(beacon_rpc_url, eth_rpc_url))]
 async fn build_input<'a>(
-    beacon_rpc_url: Url,
     slot: u64,
+    beacon_rpc_url: Url,
     eth_rpc_url: Url,
-) -> Result<OracleInput<'a>> {
-    let beacon_client = BeaconClient::new_with_cache(beacon_rpc_url.clone(), "./beacon-cache")?;
-    let beacon_block_header = beacon_client.get_block_header(slot).await?;
+) -> Result<Input<'a, Receipt>> {
+    let beacon_client = BeaconClient::new_with_cache(beacon_rpc_url, "./beacon-cache")?;
+    let provider = ProviderBuilder::new().connect_http(eth_rpc_url);
 
+    let beacon_block_header = beacon_client.get_block_header(slot).await?;
     let beacon_state = beacon_client.get_beacon_state(slot).await?;
 
-    let block_hash = beacon_client.get_eth1_block_hash_at_slot(slot).await?;
-
-    let mut env = EthEvmEnv::builder()
-        .chain_spec(&ETH_SEPOLIA_CHAIN_SPEC)
-        .rpc(eth_rpc_url)
-        .beacon_api(beacon_rpc_url)
-        .block_hash(block_hash)
-        .build()
-        .await?;
-
-    let _preflight_info = {
-        let account = Account::preflight(WITHDRAWAL_VAULT_ADDRESS, &mut env);
-        account.bytecode(true).info().await.unwrap()
-    };
-
-    let evm_input = env.into_input().await?;
-
-    let input = OracleInput::build(
-        WITHDRAWAL_CREDENTIALS,
+    let input = Input::<Receipt>::build_initial(
+        &ETH_SEPOLIA_CHAIN_SPEC,
+        MAINNET_ID,
         &beacon_block_header.message,
         &beacon_state,
-        evm_input,
-    )?;
+        &WITHDRAWAL_CREDENTIALS,
+        WITHDRAWAL_VAULT_ADDRESS,
+        provider,
+    )
+    .await?;
 
     Ok(input)
 }
 
-#[tracing::instrument(skip(input, membership_proof))]
-async fn build_proof<'a>(
-    input: OracleInput<'a>,
-    membership_proof: MembershipProof,
-    slot: u64,
-) -> Result<AggregateProof> {
+async fn build_proof<'a>(input: Input<'a, Receipt>, slot: u64) -> Result<Proof> {
     let env = ExecutorEnv::builder()
         .write_frame(&bincode::serialize(&input)?)
         .build()?;
 
-    tracing::info!("Generating aggregate proof...");
+    tracing::info!("Generating proof...");
     let session_info = default_prover().prove_with_ctx(
         env,
         &VerifierContext::default(),
-        BALANCE_AND_EXITS_ELF,
+        MAINNET_ELF,
         &ProverOpts::groth16(),
     )?;
     tracing::info!("total cycles: {}", session_info.stats.total_cycles);
 
-    Ok(AggregateProof {
+    Ok(Proof {
         slot,
         receipt: session_info.receipt,
     })
@@ -273,9 +285,9 @@ async fn submit_proof(
         .wallet(wallet)
         .connect_http(eth_rpc_url);
 
-    let proof: AggregateProof = bincode::deserialize(&read(in_path)?)?;
+    let proof: Proof = bincode::deserialize(&read(in_path)?)?;
     tracing::info!("verifying locally for sanity check");
-    proof.receipt.verify(BALANCE_AND_EXITS_ID)?;
+    proof.receipt.verify(MAINNET_ID)?;
     tracing::info!("Local verification passed :)");
 
     let seal = encode_seal(&proof.receipt).context("encoding seal")?;

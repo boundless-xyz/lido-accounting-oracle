@@ -76,11 +76,11 @@ pub(crate) fn build_with_versioned_state(
     use beacon_state::BeaconState;
 
     match beacon_state {
-        BeaconState::Phase0(b) => Ok(builder.build(b)?),
-        BeaconState::Altair(b) => Ok(builder.build(b)?),
-        BeaconState::Bellatrix(b) => Ok(builder.build(b)?),
-        BeaconState::Capella(b) => Ok(builder.build(b)?),
-        BeaconState::Deneb(b) => Ok(builder.build(b)?),
+        BeaconState::Phase0(_) => unimplemented!("Unsupported beacon state version"),
+        BeaconState::Altair(_) => unimplemented!("Unsupported beacon state version"),
+        BeaconState::Bellatrix(_) => unimplemented!("Unsupported beacon state version"),
+        BeaconState::Capella(_) => unimplemented!("Unsupported beacon state version"),
+        BeaconState::Deneb(_) => unimplemented!("Unsupported beacon state version"),
         BeaconState::Electra(b) => Ok(builder.build(b)?),
     }
 }

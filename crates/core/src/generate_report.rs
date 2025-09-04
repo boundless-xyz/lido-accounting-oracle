@@ -24,10 +24,6 @@ use crate::{u64_from_b256, Node};
 use alloy_primitives::{Address, U256};
 use bitvec::prelude::*;
 use bitvec::vec::BitVec;
-use gindices::presets::mainnet::beacon_state::post_electra as beacon_state_gindices;
-use gindices::presets::mainnet::{
-    beacon_block as beacon_block_gindices, historical_batch as historical_batch_gindices,
-};
 use risc0_steel::ethereum::EthChainSpec;
 use risc0_steel::Account;
 use sha2::{Digest, Sha256};
@@ -48,7 +44,8 @@ where
         self_program_id,
         block_root,
         block_multiproof,
-        state_multiproof: multiproof,
+        state_multiproof,
+        validators_multiproof,
         evm_input,
         proof_type,
     } = input;
@@ -68,60 +65,66 @@ where
     let state_root = get_state_root(&mut block_values);
 
     tracing::info!("Verifying state multiproof");
-    multiproof
+    state_multiproof
         .verify(&state_root)
         .expect("Failed to verify state multiproof");
-    let mut values = multiproof.values();
+    let mut state_values = state_multiproof.values();
+    let validators_root = get_validators_root(&mut state_values);
+
+    validators_multiproof
+        .verify(&validators_root)
+        .expect("Failed to verify validators multiproof");
+    let mut validators_values = validators_multiproof.values();
 
     let mut membership = match proof_type {
         ProofType::Initial => BitVec::<u32, Lsb0>::new(),
-        ProofType::Continuation {
-            prior_membership,
-            cont_type,
-            prior_receipt,
-            prior_slot,
-            prior_state_root,
-        } => {
-            match cont_type {
-                ShortRange => {
-                    let stored_root = values
-                        .next_assert_gindex(beacon_state_gindices::state_roots(prior_slot))?;
-                    assert_eq!(stored_root, &prior_state_root);
-                }
-                LongRange {
-                    hist_summary_multiproof,
-                } => {
-                    let historical_summary_root =
-                        multiproof // using a get here for now but this does cause an extra iteration through the values
-                            .get(beacon_state_gindices::historical_summaries(
-                                prior_slot,
-                            ))
-                            .unwrap();
-                    hist_summary_multiproof
-                        .verify(&historical_summary_root)
-                        .expect("Failed to verify historical summary multiproof given the root in the current state");
-                    let stored_root = hist_summary_multiproof
-                        .get(historical_batch_gindices::state_roots(prior_slot))
-                        .unwrap();
-                    assert_eq!(stored_root, &prior_state_root);
-                }
-            }
+        _ => unimplemented!(), // ProofType::Continuation {
+                               //     prior_membership,
+                               //     cont_type,
+                               //     prior_receipt,
+                               //     prior_slot,
+                               //     prior_state_root,
+                               // } => {
+                               //     match cont_type {
+                               //         ShortRange => {
+                               //             let stored_root = values
+                               //                 .next_assert_gindex(beacon_state_gindices::state_roots(prior_slot))?;
+                               //             assert_eq!(stored_root, &prior_state_root);
+                               //         }
+                               //         LongRange {
+                               //             hist_summary_multiproof,
+                               //         } => {
+                               //             let historical_summary_root =
+                               //                 state_multiproof // using a get here for now but this does cause an extra iteration through the values
+                               //                     .get(beacon_state_gindices::historical_summaries(
+                               //                         prior_slot,
+                               //                     ))
+                               //                     .unwrap();
+                               //             hist_summary_multiproof
+                               //                 .verify(&historical_summary_root)
+                               //                 .expect("Failed to verify historical summary multiproof given the root in the current state");
+                               //             let stored_root = hist_summary_multiproof
+                               //                 .get(historical_batch_gindices::state_roots(prior_slot))
+                               //                 .unwrap();
+                               //             assert_eq!(stored_root, &prior_state_root);
+                               //         }
+                               //     }
 
-            let journal = prior_receipt.journal()?;
-            assert_eq!(journal.membershipCommitment, hash_bitvec(&prior_membership));
+                               //     let journal = prior_receipt.journal()?;
+                               //     assert_eq!(journal.membershipCommitment, hash_bitvec(&prior_membership));
 
-            prior_receipt
-                .verify(self_program_id)
-                .expect("Failed to verify prior receipt");
+                               //     prior_receipt
+                               //         .verify(self_program_id)
+                               //         .expect("Failed to verify prior receipt");
 
-            prior_membership
-        }
+                               //     prior_membership
+                               // }
     };
 
     let n_validators = u64_from_b256(
-        multiproof
-            .get(beacon_state_gindices::validator_count())
-            .expect("validators len not available in multiproof"),
+        validators_multiproof
+            .get(gindices::length_gindex().try_into().unwrap())
+            .unwrap(),
         0,
     );
 
@@ -129,21 +132,15 @@ where
     membership.reserve(n_validators.saturating_sub(membership.len() as u64) as usize);
 
     for validator_index in (membership.len() as u64)..n_validators {
-        let value = values.next_assert_gindex(
-            beacon_state_gindices::validator_withdrawal_credentials(validator_index),
-        )?;
+        let value = validators_values
+            .next_assert_gindex(gindices::withdrawal_credentials_gindex(validator_index))?;
         membership.push(value == withdrawal_credentials);
     }
 
     // Compute the required oracle values from the beacon state values
     tracing::info!("Computing validator count, balances, exited validators");
-    let num_exited_validators = count_exited_validators(&mut values, &membership, slot);
-
-    let _ = values // slurp this out of the iterator, we already read it earlier
-        .next_assert_gindex(beacon_state_gindices::validator_count())
-        .expect("validator count not found in multiproof");
-
-    let cl_balance = accumulate_balances(&mut values, &membership);
+    let cl_balance = accumulate_balances(&mut validators_values, &membership);
+    let num_exited_validators = count_exited_validators(&mut validators_values, &membership, slot);
 
     // Commit the journal
     let journal = Journal {
@@ -161,7 +158,7 @@ where
 
 fn get_slot<'a, I: Iterator<Item = (u64, &'a Node)>>(values: &mut ValueIterator<'a, I, 32>) -> u64 {
     let slot = values
-        .next_assert_gindex(beacon_block_gindices::slot())
+        .next_assert_gindex(gindices::block_slot_gindex())
         .unwrap()
         .into();
     u64_from_b256(slot, 0)
@@ -171,7 +168,15 @@ fn get_state_root<'a, I: Iterator<Item = (u64, &'a Node)>>(
     values: &mut ValueIterator<'a, I, 32>,
 ) -> &'a Node {
     values
-        .next_assert_gindex(beacon_block_gindices::state_root())
+        .next_assert_gindex(gindices::state_root_gindex())
+        .unwrap()
+}
+
+fn get_validators_root<'a, I: Iterator<Item = (u64, &'a Node)>>(
+    values: &mut ValueIterator<'a, I, 32>,
+) -> &'a Node {
+    values
+        .next_assert_gindex(gindices::validators_gindex())
         .unwrap()
 }
 
@@ -185,9 +190,7 @@ fn count_exited_validators<'a, I: Iterator<Item = (u64, &'a Node)>>(
     // Iterate the validator exit epochs
     for validator_index in membership.iter_ones() {
         let value = values
-            .next_assert_gindex(beacon_state_gindices::validator_exit_epoch(
-                validator_index as u64,
-            ))
+            .next_assert_gindex(gindices::exit_epoch_gindex(validator_index as u64))
             .unwrap();
         if u64_from_b256(&value, 0) <= current_epoch {
             num_exited_validators += 1;
@@ -201,19 +204,12 @@ fn accumulate_balances<'a, I: Iterator<Item = (u64, &'a Node)>>(
     membership: &BitVec<u32, Lsb0>,
 ) -> u64 {
     // accumulate the balances but iterating over the membership bitvec
-    // This is a little tricky as multiple balances are packed into a single gindex
     let mut cl_balance = 0;
-    let mut current_leaf = (0, &[0_u8; 32]); // 0 is an invalid gindex so this will always be updated on the first validator
     for validator_index in membership.iter_ones() {
-        let expeted_gindex = beacon_state_gindices::validator_balance(validator_index as u64);
-        if current_leaf.0 != expeted_gindex {
-            current_leaf = values.next().expect(&format!(
-                "Missing valdator {} balance value in multiproof",
-                validator_index,
-            ));
-        }
-        assert_eq!(current_leaf.0, expeted_gindex);
-        let balance = u64_from_b256(&current_leaf.1, validator_index as usize % 4);
+        let value = values
+            .next_assert_gindex(gindices::effective_balance_gindex(validator_index as u64))
+            .unwrap();
+        let balance = u64_from_b256(&value, 0);
         cl_balance += balance;
     }
     cl_balance

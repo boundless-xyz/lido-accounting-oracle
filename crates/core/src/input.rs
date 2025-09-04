@@ -30,10 +30,6 @@ use {
     beacon_state::mainnet::BeaconState,
     ethereum_consensus::deneb::mainnet::HistoricalBatch,
     ethereum_consensus::phase0::BeaconBlockHeader,
-    gindices::presets::mainnet::{
-        beacon_block as beacon_block_gindices, beacon_state::post_electra as beacon_state_gindices,
-        beacon_state::SLOTS_PER_HISTORICAL_ROOT, historical_batch as historical_batch_gindices,
-    },
     risc0_steel::ethereum::EthEvmEnv,
     risc0_steel::Account,
     ssz_multiproofs::MultiproofBuilder,
@@ -56,6 +52,10 @@ pub struct Input<'a, R> {
     /// Merkle SSZ proof rooted in the beacon state
     #[serde(borrow)]
     pub state_multiproof: Multiproof<'a>,
+
+    /// Used fields of the active validators
+    #[serde(borrow)]
+    pub validators_multiproof: Multiproof<'a>,
 
     /// Steel EvmInput, used for reading the withdrawal vault balance
     pub evm_input: EthEvmInput,
@@ -131,29 +131,32 @@ impl<'a, R> Input<'a, R> {
             .collect::<BitVec<u32, Lsb0>>();
 
         let block_multiproof = MultiproofBuilder::new()
-            .with_gindex(beacon_block_gindices::slot().try_into()?)
-            .with_gindex(beacon_block_gindices::state_root().try_into()?)
+            .with_gindex(gindices::block_slot_gindex().try_into()?)
+            .with_gindex(gindices::state_root_gindex().try_into()?)
             .build(block_header)?;
 
-        let state_multiproof_builder = MultiproofBuilder::new()
-            .with_gindex(beacon_state_gindices::validator_count().try_into()?)
-            .with_gindices((0..beacon_state.validators().len()).map(|i| {
-                beacon_state_gindices::validator_withdrawal_credentials(i as u64)
-                    .try_into()
-                    .unwrap()
-            }))
-            .with_gindices(membership.iter_ones().map(|i| {
-                beacon_state_gindices::validator_balance(i as u64)
-                    .try_into()
-                    .unwrap()
-            }))
-            .with_gindices(membership.iter_ones().map(|i| {
-                beacon_state_gindices::validator_exit_epoch(i as u64)
-                    .try_into()
-                    .unwrap()
-            }));
-
+        let state_multiproof_builder =
+            MultiproofBuilder::new().with_gindex(gindices::validators_gindex().try_into()?);
         let state_multiproof = build_with_versioned_state(state_multiproof_builder, &beacon_state)?;
+
+        let validators_multiproof = MultiproofBuilder::new()
+            .with_gindex(gindices::length_gindex().try_into()?)
+            .with_gindices((0..beacon_state.validators().len()).map(|i| {
+                gindices::withdrawal_credentials_gindex(i as u64)
+                    .try_into()
+                    .unwrap()
+            }))
+            .with_gindices(membership.iter_ones().map(|i| {
+                gindices::effective_balance_gindex(i as u64)
+                    .try_into()
+                    .unwrap()
+            }))
+            .with_gindices(
+                membership
+                    .iter_ones()
+                    .map(|i| gindices::exit_epoch_gindex(i as u64).try_into().unwrap()),
+            )
+            .build(beacon_state.validators())?;
 
         // build the Steel input for reading the balance
         let mut env = EthEvmEnv::builder()
@@ -174,118 +177,138 @@ impl<'a, R> Input<'a, R> {
             block_root,
             block_multiproof,
             state_multiproof,
+            validators_multiproof,
             evm_input,
         })
     }
 
-    /// Build an oracle proof for all validators in the beacon state
-    pub async fn build_continuation<D, P>(
-        spec: &EthChainSpec,
-        self_program_id: D,
-        block_header: &BeaconBlockHeader,
-        beacon_state: &BeaconState,
-        withdrawal_credentials: &B256,
-        withdrawal_vault_address: Address,
-        prior_beacon_state: &BeaconState,
-        prior_receipt: R,
-        historical_batch: Option<HistoricalBatch>,
-        provider: P,
-    ) -> Result<Self>
-    where
-        D: Into<Digest>,
-        P: Provider + 'static,
-    {
-        let block_root = block_header.hash_tree_root()?;
-        let slot = beacon_state.slot();
+    // /// Build an oracle proof for all validators in the beacon state
+    // pub async fn build_continuation<D, P>(
+    //     spec: &EthChainSpec,
+    //     self_program_id: D,
+    //     block_header: &BeaconBlockHeader,
+    //     beacon_state: &BeaconState,
+    //     withdrawal_credentials: &B256,
+    //     withdrawal_vault_address: Address,
+    //     prior_beacon_state: &BeaconState,
+    //     prior_receipt: R,
+    //     historical_batch: Option<HistoricalBatch>,
+    //     provider: P,
+    // ) -> Result<Self>
+    // where
+    //     D: Into<Digest>,
+    //     P: Provider + 'static,
+    // {
+    //     let block_root = block_header.hash_tree_root()?;
+    //     let slot = beacon_state.slot();
 
-        let prior_slot = prior_beacon_state.slot();
-        let prior_validators_len = prior_beacon_state.validators().len();
-        let prior_state_root = prior_beacon_state.hash_tree_root()?;
+    //     let prior_slot = prior_beacon_state.slot();
+    //     let prior_validators_len = prior_beacon_state.validators().len();
+    //     let prior_state_root = prior_beacon_state.hash_tree_root()?;
 
-        let prior_membership = prior_beacon_state
-            .validators()
-            .iter()
-            .map(|v| v.withdrawal_credentials.as_slice() == withdrawal_credentials.as_slice())
-            .collect::<BitVec<u32, Lsb0>>();
+    //     let prior_membership = prior_beacon_state
+    //         .validators()
+    //         .iter()
+    //         .map(|v| v.withdrawal_credentials.as_slice() == withdrawal_credentials.as_slice())
+    //         .collect::<BitVec<u32, Lsb0>>();
 
-        let membership = beacon_state
-            .validators()
-            .iter()
-            .map(|v| v.withdrawal_credentials.as_slice() == withdrawal_credentials.as_slice())
-            .collect::<BitVec<u32, Lsb0>>();
+    //     let membership = beacon_state
+    //         .validators()
+    //         .iter()
+    //         .map(|v| v.withdrawal_credentials.as_slice() == withdrawal_credentials.as_slice())
+    //         .collect::<BitVec<u32, Lsb0>>();
 
-        let block_multiproof = MultiproofBuilder::new()
-            .with_gindex(beacon_block_gindices::slot().try_into()?)
-            .with_gindex(beacon_block_gindices::state_root().try_into()?)
-            .build(block_header)?;
+    //     let block_multiproof = MultiproofBuilder::new()
+    //         .with_gindex(beacon_block_gindices::slot().try_into()?)
+    //         .with_gindex(beacon_block_gindices::state_root().try_into()?)
+    //         .build(block_header)?;
 
-        let mut state_multiproof_builder = MultiproofBuilder::new()
-            .with_gindex(beacon_state_gindices::validator_count().try_into()?)
-            .with_gindices(
-                (prior_validators_len..beacon_state.validators().len()).map(|i| {
-                    beacon_state_gindices::validator_withdrawal_credentials(i as u64)
-                        .try_into()
-                        .unwrap()
-                }),
-            )
-            .with_gindices(membership.iter_ones().map(|i| {
-                beacon_state_gindices::validator_balance(i as u64)
-                    .try_into()
-                    .unwrap()
-            }))
-            .with_gindices(membership.iter_ones().map(|i| {
-                beacon_state_gindices::validator_exit_epoch(i as u64)
-                    .try_into()
-                    .unwrap()
-            }));
+    //     let mut state_multiproof_builder = MultiproofBuilder::new()
+    //         .with_gindex(beacon_state_gindices::validator_count().try_into()?)
+    //         .with_gindices(
+    //             (prior_validators_len..beacon_state.validators().len()).map(|i| {
+    //                 beacon_state_gindices::validator_withdrawal_credentials(i as u64)
+    //                     .try_into()
+    //                     .unwrap()
+    //             }),
+    //         )
+    //         .with_gindices(membership.iter_ones().map(|i| {
+    //             beacon_state_gindices::validator_balance(i as u64)
+    //                 .try_into()
+    //                 .unwrap()
+    //         }))
+    //         .with_gindices(membership.iter_ones().map(|i| {
+    //             beacon_state_gindices::validator_exit_epoch(i as u64)
+    //                 .try_into()
+    //                 .unwrap()
+    //         }));
 
-        let cont_type = if slot == prior_slot {
-            return Err(Error::SameSlotContinuation);
-        } else if slot <= prior_slot + SLOTS_PER_HISTORICAL_ROOT {
-            state_multiproof_builder = state_multiproof_builder
-                .with_gindex(beacon_state_gindices::state_roots(prior_slot).try_into()?);
-            ContinuationType::ShortRange
-        } else if let Some(historical_batch) = historical_batch {
-            state_multiproof_builder = state_multiproof_builder
-                .with_gindex(beacon_state_gindices::historical_summaries(prior_slot).try_into()?);
-            let hist_summary_multiproof = MultiproofBuilder::new()
-                .with_gindex(historical_batch_gindices::state_roots(prior_slot).try_into()?)
-                .build(&historical_batch)?;
-            ContinuationType::LongRange {
-                hist_summary_multiproof,
-            }
-        } else {
-            return Err(Error::MissingHistoricalBatch);
-        };
+    //     let cont_type = if slot == prior_slot {
+    //         return Err(Error::SameSlotContinuation);
+    //     } else if slot <= prior_slot + SLOTS_PER_HISTORICAL_ROOT {
+    //         state_multiproof_builder = state_multiproof_builder
+    //             .with_gindex(beacon_state_gindices::state_roots(prior_slot).try_into()?);
+    //         ContinuationType::ShortRange
+    //     } else if let Some(historical_batch) = historical_batch {
+    //         state_multiproof_builder = state_multiproof_builder
+    //             .with_gindex(beacon_state_gindices::historical_summaries(prior_slot).try_into()?);
+    //         let hist_summary_multiproof = MultiproofBuilder::new()
+    //             .with_gindex(historical_batch_gindices::state_roots(prior_slot).try_into()?)
+    //             .build(&historical_batch)?;
+    //         ContinuationType::LongRange {
+    //             hist_summary_multiproof,
+    //         }
+    //     } else {
+    //         return Err(Error::MissingHistoricalBatch);
+    //     };
 
-        let state_multiproof = build_with_versioned_state(state_multiproof_builder, &beacon_state)?;
+    //     let state_multiproof = build_with_versioned_state(state_multiproof_builder, &beacon_state)?;
 
-        // build the Steel input for reading the balance
-        let mut env = EthEvmEnv::builder()
-            .provider(provider)
-            .chain_spec(&spec)
-            .build()
-            .await
-            .unwrap();
-        let _preflight_info = {
-            let account = Account::preflight(withdrawal_vault_address, &mut env);
-            account.bytecode(true).info().await.unwrap()
-        };
-        let evm_input = env.into_input().await.unwrap();
+    //     let validators_multiproof = MultiproofBuilder::new()
+    //         .with_gindices((0..beacon_state.validators().len()).map(|i| {
+    //             beacon_state_gindices::validator_withdrawal_credentials(i as u64)
+    //                 .try_into()
+    //                 .unwrap()
+    //         }))
+    //         .with_gindices(membership.iter_ones().map(|i| {
+    //             beacon_state_gindices::validator_balance(i as u64)
+    //                 .try_into()
+    //                 .unwrap()
+    //         }))
+    //         .with_gindices(membership.iter_ones().map(|i| {
+    //             beacon_state_gindices::validator_exit_epoch(i as u64)
+    //                 .try_into()
+    //                 .unwrap()
+    //         }))
+    //         .build(beacon_state.validators())?;
 
-        Ok(Self {
-            self_program_id: self_program_id.into(),
-            proof_type: ProofType::Continuation {
-                cont_type,
-                prior_receipt,
-                prior_membership,
-                prior_slot,
-                prior_state_root,
-            },
-            block_root,
-            block_multiproof,
-            state_multiproof,
-            evm_input,
-        })
-    }
+    //     // build the Steel input for reading the balance
+    //     let mut env = EthEvmEnv::builder()
+    //         .provider(provider)
+    //         .chain_spec(&spec)
+    //         .build()
+    //         .await
+    //         .unwrap();
+    //     let _preflight_info = {
+    //         let account = Account::preflight(withdrawal_vault_address, &mut env);
+    //         account.bytecode(true).info().await.unwrap()
+    //     };
+    //     let evm_input = env.into_input().await.unwrap();
+
+    //     Ok(Self {
+    //         self_program_id: self_program_id.into(),
+    //         proof_type: ProofType::Continuation {
+    //             cont_type,
+    //             prior_receipt,
+    //             prior_membership,
+    //             prior_slot,
+    //             prior_state_root,
+    //         },
+    //         block_root,
+    //         block_multiproof,
+    //         state_multiproof,
+    //         validators_multiproof,
+    //         evm_input,
+    //     })
+    // }
 }
