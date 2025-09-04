@@ -16,6 +16,7 @@ use alloy_sol_types::sol;
 use risc0_steel::Commitment;
 
 sol! {
+    #[derive(Debug)]
     struct Journal {
         // LIP-23 oracle fields
         uint256 clBalanceGwei;

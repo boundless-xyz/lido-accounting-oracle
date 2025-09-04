@@ -26,9 +26,10 @@ use ethereum_consensus::{
     ssz::prelude::Serialize,
 };
 use lido_oracle_core::{
+    generate_oracle_report,
     input::Input,
     mainnet::{WITHDRAWAL_CREDENTIALS, WITHDRAWAL_VAULT_ADDRESS},
-    ETH_SEPOLIA_CHAIN_SPEC,
+    ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC,
 };
 use oracle_builder::{MAINNET_ELF, MAINNET_ID};
 use risc0_ethereum_contracts::encode_seal;
@@ -109,7 +110,7 @@ enum Command {
         out_path: PathBuf,
 
         #[clap(subcommand)]
-        command: ProveCommand,
+        command: Option<ProveCommand>,
     },
     /// Submit an aggregation proof to the oracle contract
     Submit {
@@ -171,6 +172,15 @@ async fn main() -> Result<()> {
                 }
             };
 
+            // sanity check
+            let report = generate_oracle_report(
+                input.clone(),
+                &ETH_MAINNET_CHAIN_SPEC,
+                &WITHDRAWAL_CREDENTIALS,
+                WITHDRAWAL_VAULT_ADDRESS,
+            )?;
+            tracing::info!("Input generates report: {:?}", report);
+
             // write as a frame in the VM stdin format
             let payload = bincode::serialize(&input)?;
             let len = payload.len() as u32;
@@ -178,7 +188,7 @@ async fn main() -> Result<()> {
             vm_stdin.extend_from_slice(&len.to_le_bytes());
             vm_stdin.extend_from_slice(&payload);
 
-            write(out_path, &bincode::serialize(&vm_stdin)?)?;
+            write(out_path, &vm_stdin)?;
         }
         Command::Prove {
             beacon_rpc_url,
@@ -186,13 +196,13 @@ async fn main() -> Result<()> {
             command,
         } => {
             let input = match command {
-                ProveCommand::Initial => {
+                None | Some(ProveCommand::Initial) => {
                     build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?
                 }
-                ProveCommand::ContinuationFrom {
+                Some(ProveCommand::ContinuationFrom {
                     prior_proof_path,
                     eth_rpc_url,
-                } => {
+                }) => {
                     todo!();
                 }
             };
@@ -240,7 +250,7 @@ async fn build_input<'a>(
     let beacon_state = beacon_client.get_beacon_state(slot).await?;
 
     let input = Input::<Receipt>::build_initial(
-        &ETH_SEPOLIA_CHAIN_SPEC,
+        &ETH_MAINNET_CHAIN_SPEC,
         MAINNET_ID,
         &beacon_block_header.message,
         &beacon_state,

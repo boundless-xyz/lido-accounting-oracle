@@ -36,7 +36,7 @@ use {
     ssz_rs::prelude::*,
 };
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Input<'a, R> {
     /// The Program ID of this program. Need to accept it as input rather than hard-code otherwise it creates a cyclic hash reference
     /// This MUST be written to the journal and checked by the verifier! See https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroSetVerifier.sol#L114
@@ -65,7 +65,7 @@ pub struct Input<'a, R> {
     pub proof_type: ProofType<'a, R>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ProofType<'a, R> {
     Initial,
     Continuation {
@@ -94,7 +94,7 @@ pub enum ProofType<'a, R> {
 ///    This also requires fetching the state at slot ( (prior_slot / SLOTS_PER_HISTORICAL_ROOT + 1) * SLOTS_PER_HISTORICAL_ROOT )
 ///    to retrieve its state_roots list and build a merkle proof into it
 ///
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ContinuationType<'a> {
     ShortRange,
     LongRange {

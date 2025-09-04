@@ -45,15 +45,16 @@ async fn test_provider() -> impl Provider + Clone {
 }
 
 #[tokio::test]
+#[tracing_test::traced_test]
 async fn test_initial() -> anyhow::Result<()> {
-    let n_validators = 10;
-    let n_lido_validators = 1;
-
     let provider = test_provider().await;
 
     let mut b = TestStateBuilder::new(CAPELLA_FORK_SLOT);
-    b.with_validators(n_validators);
-    b.with_lido_validators(n_lido_validators);
+    b.with_validators(5);
+    b.with_lido_validators(5);
+    b.with_validators(3);
+    b.with_lido_validators(4);
+
     let s = b.build();
 
     let mut block_header = BeaconBlockHeader::default();
@@ -82,7 +83,7 @@ async fn test_initial() -> anyhow::Result<()> {
         journal.withdrawalVaultBalanceWei,
         parse_ether("33").unwrap()
     );
-    assert_eq!(journal.clBalanceGwei, U256::from(10 * n_lido_validators));
+    assert_eq!(journal.clBalanceGwei, U256::from(10 * 9));
 
     Ok(())
 }

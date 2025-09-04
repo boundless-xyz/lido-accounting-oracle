@@ -29,7 +29,7 @@ pub use journal::Journal;
 use revm::primitives::hardfork::SpecId;
 use risc0_steel::config::{ChainSpec, ForkCondition};
 use risc0_steel::ethereum::EthChainSpec;
-pub use risc0_steel::ethereum::ETH_SEPOLIA_CHAIN_SPEC;
+pub use risc0_steel::ethereum::{ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC};
 #[cfg(feature = "builder")]
 use ssz_multiproofs::{Multiproof, MultiproofBuilder};
 use std::collections::BTreeMap;

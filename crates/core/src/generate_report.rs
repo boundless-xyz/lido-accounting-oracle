@@ -62,6 +62,7 @@ where
     let mut block_values = block_multiproof.values();
 
     let slot = get_slot(&mut block_values);
+    let current_epoch = slot / 32;
     let state_root = get_state_root(&mut block_values);
 
     tracing::info!("Verifying state multiproof");
@@ -71,6 +72,7 @@ where
     let mut state_values = state_multiproof.values();
     let validators_root = get_validators_root(&mut state_values);
 
+    tracing::info!("Verifying validators multiproof");
     validators_multiproof
         .verify(&validators_root)
         .expect("Failed to verify validators multiproof");
@@ -131,16 +133,33 @@ where
     // Reserve the capacity for the membership bitvector to save cycles reallocating
     membership.reserve(n_validators.saturating_sub(membership.len() as u64) as usize);
 
-    for validator_index in (membership.len() as u64)..n_validators {
+    let mut cl_balance = 0;
+    let mut num_exited_validators = 0;
+
+    tracing::info!(
+        "Computing validator membership for {} validators",
+        n_validators
+    );
+    for validator_index in 0..n_validators {
         let value = validators_values
             .next_assert_gindex(gindices::withdrawal_credentials_gindex(validator_index))?;
-        membership.push(value == withdrawal_credentials);
-    }
+        if value == withdrawal_credentials {
+            membership.push(true);
 
-    // Compute the required oracle values from the beacon state values
-    tracing::info!("Computing validator count, balances, exited validators");
-    let cl_balance = accumulate_balances(&mut validators_values, &membership);
-    let num_exited_validators = count_exited_validators(&mut validators_values, &membership, slot);
+            let value = validators_values
+                .next_assert_gindex(gindices::effective_balance_gindex(validator_index as u64))?;
+            let balance = u64_from_b256(&value, 0);
+            cl_balance += balance;
+
+            let value = validators_values
+                .next_assert_gindex(gindices::exit_epoch_gindex(validator_index as u64))?;
+            if u64_from_b256(&value, 0) <= current_epoch {
+                num_exited_validators += 1;
+            }
+        } else {
+            membership.push(false);
+        }
+    }
 
     // Commit the journal
     let journal = Journal {
@@ -178,41 +197,6 @@ fn get_validators_root<'a, I: Iterator<Item = (u64, &'a Node)>>(
     values
         .next_assert_gindex(gindices::validators_gindex())
         .unwrap()
-}
-
-fn count_exited_validators<'a, I: Iterator<Item = (u64, &'a Node)>>(
-    values: &mut ValueIterator<'a, I, 32>,
-    membership: &BitVec<u32, Lsb0>,
-    slot: u64,
-) -> u64 {
-    let current_epoch = slot / 32;
-    let mut num_exited_validators = 0;
-    // Iterate the validator exit epochs
-    for validator_index in membership.iter_ones() {
-        let value = values
-            .next_assert_gindex(gindices::exit_epoch_gindex(validator_index as u64))
-            .unwrap();
-        if u64_from_b256(&value, 0) <= current_epoch {
-            num_exited_validators += 1;
-        }
-    }
-    num_exited_validators
-}
-
-fn accumulate_balances<'a, I: Iterator<Item = (u64, &'a Node)>>(
-    values: &mut ValueIterator<'a, I, 32>,
-    membership: &BitVec<u32, Lsb0>,
-) -> u64 {
-    // accumulate the balances but iterating over the membership bitvec
-    let mut cl_balance = 0;
-    for validator_index in membership.iter_ones() {
-        let value = values
-            .next_assert_gindex(gindices::effective_balance_gindex(validator_index as u64))
-            .unwrap();
-        let balance = u64_from_b256(&value, 0);
-        cl_balance += balance;
-    }
-    cl_balance
 }
 
 /// Hash a bitvec in a way that includes the bitlength. Just hashing the underlying bytes is not sufficient

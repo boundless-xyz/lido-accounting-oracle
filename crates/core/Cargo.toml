@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = []
-builder = ["ssz-multiproofs/builder", "dep:ssz_rs", "dep:ethereum-consensus", "dep:beacon-state", "risc0-steel/host"]
+builder = ["ssz-multiproofs/builder", "ssz-multiproofs/progress-bar", "dep:ssz_rs", "dep:ethereum-consensus", "dep:beacon-state", "risc0-steel/host"]
 
 [dependencies]
 ssz-multiproofs = { workspace = true }
@@ -36,3 +36,4 @@ anyhow = { workspace = true }
 test-utils = { workspace = true }
 oracle_builder = { workspace = true }
 tokio = { workspace = true }
+tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
