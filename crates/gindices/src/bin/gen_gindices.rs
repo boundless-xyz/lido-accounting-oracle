@@ -97,10 +97,6 @@ fn validators_gindices() -> proc_macro2::TokenStream {
     // static paths for the Validator
     let g = [
         (
-            "effective_balance",
-            Path::from(&["effective_balance".into()]),
-        ),
-        (
             "withdrawal_credentials",
             Path::from(&["withdrawal_credentials".into()]),
         ),
@@ -130,8 +126,18 @@ fn validators_gindices() -> proc_macro2::TokenStream {
         })
         .collect();
 
+    let balance_base_gindex =
+        <BeaconState>::generalized_index(Path::from(&["balances".into(), 0.into()])).unwrap()
+            as u64;
+
     quote! {
-        #v
+            #v
+
+            #[doc = "Returns the gindex of balance from Validator i"]
+            #[inline(always)]
+            pub const fn validator_balance_gindex(i: u64) -> u64 {
+                #balance_base_gindex + (i / 4)
+            }
     }
 }
 
@@ -156,10 +162,6 @@ where
 {
     // Static paths for the BeaconState
     [
-        // (
-        //     "validator_count",
-        //     Path::from(&["validators".into(), PathElement::Length]),
-        // ),
         ("validators", Path::from(&["validators".into()])),
         (
             "state_roots_base",

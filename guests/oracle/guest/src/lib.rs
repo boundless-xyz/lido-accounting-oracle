@@ -38,5 +38,6 @@ pub fn entry(
     )
     .expect("Failed to Generate oracle report");
 
+    env::log("Writing journal");
     env::commit_slice(&journal.abi_encode());
 }

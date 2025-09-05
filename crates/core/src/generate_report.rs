@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::journal::Journal;
+use crate::{error, u64_from_b256, Node};
 use crate::{
     input::{
         ContinuationType::{LongRange, ShortRange},
@@ -20,7 +21,6 @@ use crate::{
     },
     receipt::Receipt,
 };
-use crate::{u64_from_b256, Node};
 use alloy_primitives::{Address, U256};
 use bitvec::prelude::*;
 use bitvec::vec::BitVec;
@@ -56,85 +56,42 @@ where
     let withdrawal_vault_balance: U256 = account.info().balance;
 
     tracing::info!("Verifying block multiproof");
-    block_multiproof
-        .verify(&block_root)
-        .expect("Failed to verify block multiproof");
+    block_multiproof.verify(&block_root)?;
     let mut block_values = block_multiproof.values();
 
-    let slot = get_slot(&mut block_values);
+    let slot = u64_from_b256(
+        block_values.next_assert_gindex(gindices::block_slot_gindex())?,
+        0,
+    );
+    let state_root = block_values.next_assert_gindex(gindices::state_root_gindex())?;
     let current_epoch = slot / 32;
-    let state_root = get_state_root(&mut block_values);
 
     tracing::info!("Verifying state multiproof");
-    state_multiproof
-        .verify(&state_root)
-        .expect("Failed to verify state multiproof");
+    state_multiproof.verify(&state_root)?;
     let mut state_values = state_multiproof.values();
-    let validators_root = get_validators_root(&mut state_values);
+    let validators_root = state_values.next_assert_gindex(gindices::validators_gindex())?;
 
     tracing::info!("Verifying validators multiproof");
-    validators_multiproof
-        .verify(&validators_root)
-        .expect("Failed to verify validators multiproof");
+    validators_multiproof.verify(&validators_root)?;
     let mut validators_values = validators_multiproof.values();
 
     let mut membership = match proof_type {
         ProofType::Initial => BitVec::<u32, Lsb0>::new(),
-        _ => unimplemented!(), // ProofType::Continuation {
-                               //     prior_membership,
-                               //     cont_type,
-                               //     prior_receipt,
-                               //     prior_slot,
-                               //     prior_state_root,
-                               // } => {
-                               //     match cont_type {
-                               //         ShortRange => {
-                               //             let stored_root = values
-                               //                 .next_assert_gindex(beacon_state_gindices::state_roots(prior_slot))?;
-                               //             assert_eq!(stored_root, &prior_state_root);
-                               //         }
-                               //         LongRange {
-                               //             hist_summary_multiproof,
-                               //         } => {
-                               //             let historical_summary_root =
-                               //                 state_multiproof // using a get here for now but this does cause an extra iteration through the values
-                               //                     .get(beacon_state_gindices::historical_summaries(
-                               //                         prior_slot,
-                               //                     ))
-                               //                     .unwrap();
-                               //             hist_summary_multiproof
-                               //                 .verify(&historical_summary_root)
-                               //                 .expect("Failed to verify historical summary multiproof given the root in the current state");
-                               //             let stored_root = hist_summary_multiproof
-                               //                 .get(historical_batch_gindices::state_roots(prior_slot))
-                               //                 .unwrap();
-                               //             assert_eq!(stored_root, &prior_state_root);
-                               //         }
-                               //     }
-
-                               //     let journal = prior_receipt.journal()?;
-                               //     assert_eq!(journal.membershipCommitment, hash_bitvec(&prior_membership));
-
-                               //     prior_receipt
-                               //         .verify(self_program_id)
-                               //         .expect("Failed to verify prior receipt");
-
-                               //     prior_membership
-                               // }
+        _ => unimplemented!(),
     };
 
     let n_validators = u64_from_b256(
         validators_multiproof
-            .get(gindices::length_gindex().try_into().unwrap())
-            .unwrap(),
+            .get(gindices::length_gindex())
+            .ok_or(error::Error::MissingValue(gindices::length_gindex()))?,
         0,
     );
 
     // Reserve the capacity for the membership bitvector to save cycles reallocating
     membership.reserve(n_validators.saturating_sub(membership.len() as u64) as usize);
 
-    let mut cl_balance = 0;
     let mut num_exited_validators = 0;
+    let mut num_lido_validators = 0;
 
     tracing::info!(
         "Computing validator membership for {} validators",
@@ -145,15 +102,11 @@ where
             .next_assert_gindex(gindices::withdrawal_credentials_gindex(validator_index))?;
         if value == withdrawal_credentials {
             membership.push(true);
+            num_lido_validators += 1;
 
-            let value = validators_values
-                .next_assert_gindex(gindices::effective_balance_gindex(validator_index as u64))?;
-            let balance = u64_from_b256(&value, 0);
-            cl_balance += balance;
-
-            let value = validators_values
+            let exit_epoch = validators_values
                 .next_assert_gindex(gindices::exit_epoch_gindex(validator_index as u64))?;
-            if u64_from_b256(&value, 0) <= current_epoch {
+            if u64_from_b256(&exit_epoch, 0) <= current_epoch {
                 num_exited_validators += 1;
             }
         } else {
@@ -161,11 +114,13 @@ where
         }
     }
 
+    let cl_balance = accumulate_balances(&mut state_values, &membership);
+
     // Commit the journal
     let journal = Journal {
         clBalanceGwei: U256::from(cl_balance),
         withdrawalVaultBalanceWei: withdrawal_vault_balance.into(),
-        totalDepositedValidators: U256::from(n_validators),
+        totalDepositedValidators: U256::from(num_lido_validators),
         totalExitedValidators: U256::from(num_exited_validators),
         blockRoot: block_root,
         commitment: evm_env.into_commitment(),
@@ -175,28 +130,27 @@ where
     Ok(journal)
 }
 
-fn get_slot<'a, I: Iterator<Item = (u64, &'a Node)>>(values: &mut ValueIterator<'a, I, 32>) -> u64 {
-    let slot = values
-        .next_assert_gindex(gindices::block_slot_gindex())
-        .unwrap()
-        .into();
-    u64_from_b256(slot, 0)
-}
-
-fn get_state_root<'a, I: Iterator<Item = (u64, &'a Node)>>(
+fn accumulate_balances<'a, I: Iterator<Item = (u64, &'a Node)>>(
     values: &mut ValueIterator<'a, I, 32>,
-) -> &'a Node {
-    values
-        .next_assert_gindex(gindices::state_root_gindex())
-        .unwrap()
-}
-
-fn get_validators_root<'a, I: Iterator<Item = (u64, &'a Node)>>(
-    values: &mut ValueIterator<'a, I, 32>,
-) -> &'a Node {
-    values
-        .next_assert_gindex(gindices::validators_gindex())
-        .unwrap()
+    membership: &BitVec<u32, Lsb0>,
+) -> u64 {
+    // accumulate the balances but iterating over the membership bitvec
+    // Multiple balances are packed into a single gindex so this cannot be a straight iteration
+    let mut cl_balance = 0;
+    let mut current_leaf = (0, &[0_u8; 32]); // 0 is an invalid gindex so this will always be updated on the first validator
+    for validator_index in membership.iter_ones() {
+        let expeted_gindex = gindices::validator_balance_gindex(validator_index as u64);
+        if current_leaf.0 != expeted_gindex {
+            current_leaf = values.next().expect(&format!(
+                "Missing valdator {} balance value in multiproof",
+                validator_index,
+            ));
+        }
+        assert_eq!(current_leaf.0, expeted_gindex);
+        let balance = u64_from_b256(&current_leaf.1, validator_index as usize % 4);
+        cl_balance += balance;
+    }
+    cl_balance
 }
 
 /// Hash a bitvec in a way that includes the bitlength. Just hashing the underlying bytes is not sufficient

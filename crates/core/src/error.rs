@@ -41,6 +41,9 @@ pub enum Error {
 
     #[error("Failed to decode journal: {0}")]
     JournalDecoding(String),
+
+    #[error("Expected value missing in multiproof at gindex {0}")]
+    MissingValue(u64),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

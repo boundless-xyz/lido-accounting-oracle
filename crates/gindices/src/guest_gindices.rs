@@ -54,13 +54,6 @@ pub const fn state_root_gindex() -> u64 {
 pub const fn block_slot_gindex() -> u64 {
     8u64
 }
-/// Returns the gindex of effective_balance from Validator i
-#[inline(always)]
-pub const fn effective_balance_gindex(i: u64) -> u64 {
-    const CHUNK_OFFSET: u64 = 10u64 / 8u64;
-    const WITHIN_CHUNK: u64 = 10u64 % 8u64;
-    (2199023255552u64 + (i as u64)) * 8u64 * CHUNK_OFFSET + WITHIN_CHUNK
-}
 /// Returns the gindex of withdrawal_credentials from Validator i
 #[inline(always)]
 pub const fn withdrawal_credentials_gindex(i: u64) -> u64 {
@@ -88,6 +81,11 @@ pub const fn exit_epoch_gindex(i: u64) -> u64 {
     const CHUNK_OFFSET: u64 = 14u64 / 8u64;
     const WITHIN_CHUNK: u64 = 14u64 % 8u64;
     (2199023255552u64 + (i as u64)) * 8u64 * CHUNK_OFFSET + WITHIN_CHUNK
+}
+///Returns the gindex of balance from Validator i
+#[inline(always)]
+pub const fn validator_balance_gindex(i: u64) -> u64 {
+    41781441855488u64 + (i / 4)
 }
 /// Returns the gindex for the length of a List<> type
 #[inline(always)]
