@@ -68,7 +68,7 @@ async fn test_initial() -> anyhow::Result<()> {
         .into_header()
         .hash;
 
-    let input = Input::<DummyReceipt>::build_initial(
+    let input = Input::build_initial(
         &ANVIL_CHAIN_SPEC,
         MAINNET_ID,
         &block_header,
@@ -76,6 +76,7 @@ async fn test_initial() -> anyhow::Result<()> {
         &execution_block_root,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
+        None,
         provider.clone(),
     )
     .await?;
