@@ -238,24 +238,23 @@ struct Proof {
 }
 
 #[tracing::instrument(skip(beacon_rpc_url, eth_rpc_url))]
-async fn build_input<'a>(
-    slot: u64,
-    beacon_rpc_url: Url,
-    eth_rpc_url: Url,
-) -> Result<Input<'a, Receipt>> {
+async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Result<Input<'a>> {
     let beacon_client = BeaconClient::new_with_cache(beacon_rpc_url, "./beacon-cache")?;
     let provider = ProviderBuilder::new().connect_http(eth_rpc_url);
 
     let beacon_block_header = beacon_client.get_block_header(slot).await?;
     let beacon_state = beacon_client.get_beacon_state(slot).await?;
+    let execution_block_hash = beacon_client.get_eth1_block_hash_at_slot(slot + 1).await?;
 
-    let input = Input::<Receipt>::build_initial(
+    let input = Input::build_initial(
         &ETH_MAINNET_CHAIN_SPEC,
         MAINNET_ID,
         &beacon_block_header.message,
         &beacon_state,
+        &execution_block_hash,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
+        None,
         provider,
     )
     .await?;
@@ -263,7 +262,7 @@ async fn build_input<'a>(
     Ok(input)
 }
 
-async fn build_proof<'a>(input: Input<'a, Receipt>, slot: u64) -> Result<Proof> {
+async fn build_proof<'a>(input: Input<'a>, slot: u64) -> Result<Proof> {
     let env = ExecutorEnv::builder()
         .write_frame(&bincode::serialize(&input)?)
         .build()?;

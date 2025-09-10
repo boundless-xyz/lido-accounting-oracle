@@ -27,6 +27,9 @@ sol! {
 
         // Non-oracle fields commit to Steel environment and membership for continuation
         Commitment commitment;
+        // `hash_bitvec`` of the resulting membership bitfield
         bytes32 membershipCommitment;
+        // Committing to the program ID allow recursion without creating a circular dependency
+        bytes32 programId;
     }
 }

@@ -61,11 +61,19 @@ async fn test_initial() -> anyhow::Result<()> {
     block_header.slot = s.slot();
     block_header.state_root = s.hash_tree_root().unwrap();
 
+    let execution_block_root = provider
+        .get_block_by_number(1.into())
+        .await?
+        .unwrap()
+        .into_header()
+        .hash;
+
     let input = Input::<DummyReceipt>::build_initial(
         &ANVIL_CHAIN_SPEC,
         MAINNET_ID,
         &block_header,
         &s,
+        &execution_block_root,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
         provider.clone(),

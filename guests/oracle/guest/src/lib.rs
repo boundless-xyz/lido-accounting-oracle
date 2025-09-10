@@ -17,7 +17,7 @@ use alloy_sol_types::SolValue;
 use bincode::deserialize;
 use lido_oracle_core::{generate_oracle_report, input::Input};
 use risc0_steel::ethereum::EthChainSpec;
-use risc0_zkvm::{guest::env, Receipt};
+use risc0_zkvm::guest::env;
 
 pub fn entry(
     spec: &EthChainSpec,
@@ -28,7 +28,7 @@ pub fn entry(
     let input_bytes = env::read_frame();
 
     env::log("Deserializing input");
-    let input: Input<Receipt> = deserialize(&input_bytes).expect("Failed to deserialize input");
+    let input: Input = deserialize(&input_bytes).expect("Failed to deserialize input");
 
     let journal = generate_oracle_report(
         input,

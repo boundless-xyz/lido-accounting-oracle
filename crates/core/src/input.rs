@@ -24,20 +24,14 @@ use ssz_multiproofs::Multiproof;
 
 #[cfg(feature = "builder")]
 use {
-    crate::build_with_versioned_state,
-    crate::{Error, Result},
-    alloy_primitives::Address,
-    beacon_state::mainnet::BeaconState,
-    ethereum_consensus::deneb::mainnet::HistoricalBatch,
-    ethereum_consensus::phase0::BeaconBlockHeader,
-    risc0_steel::ethereum::EthEvmEnv,
-    risc0_steel::Account,
-    ssz_multiproofs::MultiproofBuilder,
+    crate::build_with_versioned_state, crate::Result, alloy_primitives::Address,
+    beacon_state::mainnet::BeaconState, ethereum_consensus::phase0::BeaconBlockHeader,
+    risc0_steel::ethereum::EthEvmEnv, risc0_steel::Account, ssz_multiproofs::MultiproofBuilder,
     ssz_rs::prelude::*,
 };
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct Input<'a, R> {
+pub struct Input<'a> {
     /// The Program ID of this program. Need to accept it as input rather than hard-code otherwise it creates a cyclic hash reference
     /// This MUST be written to the journal and checked by the verifier! See https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroSetVerifier.sol#L114
     pub self_program_id: Digest,
@@ -61,66 +55,52 @@ pub struct Input<'a, R> {
     pub evm_input: EthEvmInput,
 
     /// If this proof is a continuation, the membership status of the validators
-    #[serde(borrow)]
-    pub proof_type: ProofType<'a, R>,
+    pub proof_type: ProofType,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum ProofType<'a, R> {
+pub enum ProofType {
     Initial,
     Continuation {
-        #[serde(borrow)]
-        cont_type: ContinuationType<'a>,
-        /// Journal to verify the previous proof
-        prior_receipt: R,
-        /// The prior membership bitfield for the previous proof to be checked against the journal membershipCommitment
+        /// The prior membership bitfield for the previous proof. This will be checked using the Steel to find a prior
+        /// submission that produces this membership
         prior_membership: BitVec<u32, Lsb0>,
-        /// The slot of the prior proof
-        prior_slot: u64,
-        /// The state root of the prior proof
-        prior_state_root: B256,
-    },
-}
-
-/// Continuations proofs are slightly different depending on how far back the prior proof is.
-/// There are two possibilities here. Either
-/// 1. prior_slot < slot <= prior_slot + SLOTS_PER_HISTORICAL_ROOT
-///    Prove the prior state root is in the state_roots list of the current state at (prior_slot % SLOTS_PER_HISTORICAL_ROOT)
-/// 2. slot > prior_slot + SLOTS_PER_HISTORICAL_ROOT
-///     This requires doing an extra step. In this case prove an entry in the historical_summaries list of the current state
-///     and then prove the prior state root is in the state_roots list of the historical summary.
-///    The element in the historical_summaries list is at index (prior_slot - CAPELLA_FORK_SLOT) / SLOTS_PER_HISTORICAL_ROOT
-///    and the index in the state_roots list is (prior_slot % SLOTS_PER_HISTORICAL_ROOT).
-///    This also requires fetching the state at slot ( (prior_slot / SLOTS_PER_HISTORICAL_ROOT + 1) * SLOTS_PER_HISTORICAL_ROOT )
-///    to retrieve its state_roots list and build a merkle proof into it
-///
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum ContinuationType<'a> {
-    ShortRange,
-    LongRange {
-        /// The historical summary multiproof to verify the historical summary root
-        #[serde(borrow)]
-        hist_summary_multiproof: Multiproof<'a>,
     },
 }
 
 #[cfg(feature = "builder")]
-impl<'a, R> Input<'a, R> {
+impl<'a> Input<'a> {
     /// Build an oracle proof for all validators in the beacon state
     pub async fn build_initial<D, P>(
         spec: &EthChainSpec,
         self_program_id: D,
         block_header: &BeaconBlockHeader,
         beacon_state: &BeaconState,
+        execution_block_hash: &B256,
         withdrawal_credentials: &B256,
         withdrawal_vault_address: Address,
+        prior_membership: Option<BitVec<u32, Lsb0>>,
         provider: P,
     ) -> Result<Self>
     where
         D: Into<Digest>,
         P: Provider + 'static,
     {
-        use risc0_steel::ethereum::EthEvmEnv;
+        // build the Steel input for reading the balance
+        let mut env = EthEvmEnv::builder()
+            .provider(provider)
+            .chain_spec(&spec)
+            .block_hash(*execution_block_hash)
+            .build()
+            .await
+            .unwrap();
+        let _preflight_info = {
+            let account = Account::preflight(withdrawal_vault_address, &mut env);
+            account.bytecode(true).info().await.unwrap()
+        };
+        let evm_input = env.into_input().await.unwrap();
+
+        tracing::info!("withdrawal_vault balance: {}", _preflight_info.balance);
 
         let block_root = block_header.hash_tree_root()?;
 
@@ -157,19 +137,6 @@ impl<'a, R> Input<'a, R> {
                     .map(|i| gindices::exit_epoch_gindex(i as u64).try_into().unwrap()),
             )
             .build(beacon_state.validators())?;
-
-        // build the Steel input for reading the balance
-        let mut env = EthEvmEnv::builder()
-            .provider(provider)
-            .chain_spec(&spec)
-            .build()
-            .await
-            .unwrap();
-        let _preflight_info = {
-            let account = Account::preflight(withdrawal_vault_address, &mut env);
-            account.bytecode(true).info().await.unwrap()
-        };
-        let evm_input = env.into_input().await.unwrap();
 
         Ok(Self {
             self_program_id: self_program_id.into(),

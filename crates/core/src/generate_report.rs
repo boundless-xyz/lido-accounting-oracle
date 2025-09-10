@@ -12,15 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::input::{Input, ProofType};
 use crate::journal::Journal;
 use crate::{error, u64_from_b256, Node};
-use crate::{
-    input::{
-        ContinuationType::{LongRange, ShortRange},
-        Input, ProofType,
-    },
-    receipt::Receipt,
-};
 use alloy_primitives::{Address, U256};
 use bitvec::prelude::*;
 use bitvec::vec::BitVec;
@@ -31,15 +25,12 @@ use ssz_multiproofs::ValueIterator;
 
 use crate::error::Result;
 
-pub fn generate_oracle_report<R>(
-    input: Input<R>,
+pub fn generate_oracle_report(
+    input: Input,
     spec: &EthChainSpec,
     withdrawal_credentials: &[u8; 32],
     withdrawal_vault_address: Address,
-) -> Result<Journal>
-where
-    R: Receipt,
-{
+) -> Result<Journal> {
     let Input {
         self_program_id,
         block_root,
@@ -125,6 +116,7 @@ where
         blockRoot: block_root,
         commitment: evm_env.into_commitment(),
         membershipCommitment: hash_bitvec(&membership).into(),
+        programId: self_program_id.as_bytes().try_into().unwrap(),
     };
 
     Ok(journal)
