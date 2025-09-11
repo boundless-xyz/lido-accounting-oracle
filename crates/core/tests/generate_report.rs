@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use oracle_builder::MAINNET_ID;
-
-use alloy_primitives::utils::parse_ether;
+use alloy_primitives::{utils::parse_ether, Address};
+use bitvec::vec::BitVec;
 use ethereum_consensus::phase0::presets::mainnet::BeaconBlockHeader;
 use ethereum_consensus::ssz::prelude::*;
 use lido_oracle_core::{
     generate_oracle_report,
     input::Input,
     mainnet::{WITHDRAWAL_CREDENTIALS, WITHDRAWAL_VAULT_ADDRESS},
-    receipt::DummyReceipt,
     ANVIL_CHAIN_SPEC,
 };
 use test_utils::{TestStateBuilder, CAPELLA_FORK_SLOT};
@@ -70,12 +68,13 @@ async fn test_initial() -> anyhow::Result<()> {
 
     let input = Input::build_initial(
         &ANVIL_CHAIN_SPEC,
-        MAINNET_ID,
         &block_header,
         &s,
         &execution_block_root,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
+        Address::ZERO, // dummy address for testing
+        BitVec::new(),
         None,
         provider.clone(),
     )
@@ -86,6 +85,7 @@ async fn test_initial() -> anyhow::Result<()> {
         &ANVIL_CHAIN_SPEC,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
+        Address::ZERO, // dummy address for testing
     )?;
 
     assert_eq!(

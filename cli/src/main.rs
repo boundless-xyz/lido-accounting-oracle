@@ -20,6 +20,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use beacon_client::BeaconClient;
+use bitvec::vec::BitVec;
 use clap::Parser;
 use ethereum_consensus::{
     phase0::mainnet::{HistoricalBatch, SLOTS_PER_HISTORICAL_ROOT},
@@ -80,6 +81,10 @@ struct Args {
     #[clap(long, env)]
     eth_rpc_url: Url,
 
+    /// SecondOpinionOracle contract address
+    #[clap(long, env)]
+    contract: Address,
+
     #[clap(subcommand)]
     command: Command,
 }
@@ -117,10 +122,6 @@ enum Command {
         /// Eth key to sign with
         #[clap(long, env)]
         eth_wallet_private_key: PrivateKeySigner,
-
-        /// SecondOpinionOracle contract address
-        #[clap(long, env)]
-        contract: Option<Address>,
 
         /// TestVerifier contract address
         #[clap(long, env)]
@@ -162,7 +163,7 @@ async fn main() -> Result<()> {
         } => {
             let input = match command {
                 ProveCommand::Initial => {
-                    build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?
+                    build_input(args.slot, beacon_rpc_url, args.eth_rpc_url, args.contract).await?
                 }
                 ProveCommand::ContinuationFrom {
                     prior_proof_path,
@@ -178,6 +179,7 @@ async fn main() -> Result<()> {
                 &ETH_MAINNET_CHAIN_SPEC,
                 &WITHDRAWAL_CREDENTIALS,
                 WITHDRAWAL_VAULT_ADDRESS,
+                args.contract,
             )?;
             tracing::info!("Input generates report: {:?}", report);
 
@@ -197,7 +199,7 @@ async fn main() -> Result<()> {
         } => {
             let input = match command {
                 None | Some(ProveCommand::Initial) => {
-                    build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?
+                    build_input(args.slot, beacon_rpc_url, args.eth_rpc_url, args.contract).await?
                 }
                 Some(ProveCommand::ContinuationFrom {
                     prior_proof_path,
@@ -212,14 +214,13 @@ async fn main() -> Result<()> {
         }
         Command::Submit {
             eth_wallet_private_key,
-            contract,
             test_contract,
             proof_path,
         } => {
             submit_proof(
                 eth_wallet_private_key,
                 args.eth_rpc_url,
-                contract,
+                Some(args.contract),
                 test_contract,
                 proof_path,
             )
@@ -238,7 +239,12 @@ struct Proof {
 }
 
 #[tracing::instrument(skip(beacon_rpc_url, eth_rpc_url))]
-async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Result<Input<'a>> {
+async fn build_input<'a>(
+    slot: u64,
+    beacon_rpc_url: Url,
+    eth_rpc_url: Url,
+    oracle_address: Address,
+) -> Result<Input<'a>> {
     let beacon_client = BeaconClient::new_with_cache(beacon_rpc_url, "./beacon-cache")?;
     let provider = ProviderBuilder::new().connect_http(eth_rpc_url);
 
@@ -248,12 +254,13 @@ async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Re
 
     let input = Input::build_initial(
         &ETH_MAINNET_CHAIN_SPEC,
-        MAINNET_ID,
         &beacon_block_header.message,
         &beacon_state,
         &execution_block_hash,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
+        oracle_address,
+        BitVec::new(),
         None,
         provider,
     )

@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use crate::input::{Input, ProofType};
-use crate::journal::Journal;
+use crate::journal::{Journal, ReportUpdated};
 use crate::{error, u64_from_b256, Node};
 use alloy_primitives::{Address, U256};
 use bitvec::prelude::*;
 use bitvec::vec::BitVec;
 use risc0_steel::ethereum::EthChainSpec;
-use risc0_steel::Account;
+use risc0_steel::{Account, Event, SteelVerifier};
 use sha2::{Digest, Sha256};
 use ssz_multiproofs::ValueIterator;
 
@@ -30,9 +30,9 @@ pub fn generate_oracle_report(
     spec: &EthChainSpec,
     withdrawal_credentials: &[u8; 32],
     withdrawal_vault_address: Address,
+    oracle_contract_address: Address,
 ) -> Result<Journal> {
     let Input {
-        self_program_id,
         block_root,
         block_multiproof,
         state_multiproof,
@@ -66,9 +66,36 @@ pub fn generate_oracle_report(
     validators_multiproof.verify(&validators_root)?;
     let mut validators_values = validators_multiproof.values();
 
-    let mut membership = match proof_type {
-        ProofType::Initial => BitVec::<u32, Lsb0>::new(),
-        _ => unimplemented!(),
+    let (mut membership, mut num_lido_validators, mut num_exited_validators) = match proof_type {
+        ProofType::Initial => (BitVec::<u32, Lsb0>::new(), 0, 0),
+        ProofType::Continuation {
+            evm_input: cont_evm_input,
+            prior_membership,
+        } => {
+            let cont_evm_env = cont_evm_input.into_env(spec);
+
+            // verify this Steel env using the top level env
+            let verifier = SteelVerifier::new(&evm_env);
+            verifier.verify(cont_evm_env.commitment());
+
+            // Use the Steel commitment to verify the values we are continuing from
+            let event = Event::new::<ReportUpdated>(&cont_evm_env);
+            let logs = event.address(oracle_contract_address).query();
+            logs.first()
+                .map(|e| {
+                    assert_eq!(
+                        hash_bitvec(&prior_membership),
+                        e.membershipCommitment,
+                        "prior membership commitment check failed. Does not match the commitment in the journal of the prior proof"
+                    );
+                    (
+                        prior_membership,
+                        e.report.totalDepositedValidators.try_into().unwrap(),
+                        e.report.totalExitedValidators.try_into().unwrap(),
+                    )
+                })
+                .unwrap()
+        }
     };
 
     let n_validators = u64_from_b256(
@@ -81,14 +108,11 @@ pub fn generate_oracle_report(
     // Reserve the capacity for the membership bitvector to save cycles reallocating
     membership.reserve(n_validators.saturating_sub(membership.len() as u64) as usize);
 
-    let mut num_exited_validators = 0;
-    let mut num_lido_validators = 0;
-
     tracing::info!(
         "Computing validator membership for {} validators",
         n_validators
     );
-    for validator_index in 0..n_validators {
+    for validator_index in (membership.len() as u64)..n_validators {
         let value = validators_values
             .next_assert_gindex(gindices::withdrawal_credentials_gindex(validator_index))?;
         if value == withdrawal_credentials {
@@ -105,6 +129,7 @@ pub fn generate_oracle_report(
         }
     }
 
+    // cannot update this from a prior proof as balances can change
     let cl_balance = accumulate_balances(&mut state_values, &membership);
 
     // Commit the journal
@@ -116,7 +141,6 @@ pub fn generate_oracle_report(
         blockRoot: block_root,
         commitment: evm_env.into_commitment(),
         membershipCommitment: hash_bitvec(&membership).into(),
-        programId: self_program_id.as_bytes().try_into().unwrap(),
     };
 
     Ok(journal)

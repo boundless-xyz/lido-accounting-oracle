@@ -19,23 +19,23 @@ use risc0_steel::alloy::providers::Provider;
 #[cfg(feature = "builder")]
 use risc0_steel::ethereum::EthChainSpec;
 use risc0_steel::ethereum::EthEvmInput;
-use risc0_zkvm::Digest;
 use ssz_multiproofs::Multiproof;
 
 #[cfg(feature = "builder")]
 use {
-    crate::build_with_versioned_state, crate::Result, alloy_primitives::Address,
-    beacon_state::mainnet::BeaconState, ethereum_consensus::phase0::BeaconBlockHeader,
-    risc0_steel::ethereum::EthEvmEnv, risc0_steel::Account, ssz_multiproofs::MultiproofBuilder,
+    crate::build_with_versioned_state,
+    crate::journal::ReportUpdated,
+    crate::Result,
+    alloy_primitives::Address,
+    beacon_state::mainnet::BeaconState,
+    ethereum_consensus::phase0::BeaconBlockHeader,
+    risc0_steel::{ethereum::EthEvmEnv, Account, Event},
+    ssz_multiproofs::MultiproofBuilder,
     ssz_rs::prelude::*,
 };
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Input<'a> {
-    /// The Program ID of this program. Need to accept it as input rather than hard-code otherwise it creates a cyclic hash reference
-    /// This MUST be written to the journal and checked by the verifier! See https://github.com/risc0/risc0-ethereum/blob/main/contracts/src/RiscZeroSetVerifier.sol#L114
-    pub self_program_id: Digest,
-
     /// Block that the proof is rooted in
     pub block_root: B256,
 
@@ -58,10 +58,12 @@ pub struct Input<'a> {
     pub proof_type: ProofType,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub enum ProofType {
     Initial,
     Continuation {
+        /// EVM Input for the block where the prior report was made
+        evm_input: EthEvmInput,
         /// The prior membership bitfield for the previous proof. This will be checked using the Steel to find a prior
         /// submission that produces this membership
         prior_membership: BitVec<u32, Lsb0>,
@@ -71,24 +73,24 @@ pub enum ProofType {
 #[cfg(feature = "builder")]
 impl<'a> Input<'a> {
     /// Build an oracle proof for all validators in the beacon state
-    pub async fn build_initial<D, P>(
+    pub async fn build_initial<P>(
         spec: &EthChainSpec,
-        self_program_id: D,
         block_header: &BeaconBlockHeader,
         beacon_state: &BeaconState,
         execution_block_hash: &B256,
         withdrawal_credentials: &B256,
         withdrawal_vault_address: Address,
-        prior_membership: Option<BitVec<u32, Lsb0>>,
+        oracle_address: Address,
+        prior_membership: BitVec<u32, Lsb0>,
+        prior_report_block: Option<u64>,
         provider: P,
     ) -> Result<Self>
     where
-        D: Into<Digest>,
-        P: Provider + 'static,
+        P: Provider + 'static + Clone,
     {
         // build the Steel input for reading the balance
         let mut env = EthEvmEnv::builder()
-            .provider(provider)
+            .provider(provider.clone())
             .chain_spec(&spec)
             .block_hash(*execution_block_hash)
             .build()
@@ -110,6 +112,34 @@ impl<'a> Input<'a> {
             .map(|v| v.withdrawal_credentials.as_slice() == withdrawal_credentials.as_slice())
             .collect::<BitVec<u32, Lsb0>>();
 
+        let start_index = prior_membership.len();
+        // sanity check
+        assert_eq!(
+            membership[0..start_index],
+            prior_membership,
+            "prior membership is not a prefix for the membership retrieved from the beacon state"
+        );
+
+        let proof_type = match prior_report_block {
+            Some(block) => {
+                let mut env = EthEvmEnv::builder()
+                    .provider(provider)
+                    .chain_spec(&spec)
+                    .block_number(block)
+                    .build()
+                    .await
+                    .unwrap();
+                let event = Event::preflight::<ReportUpdated>(&mut env);
+                let _logs = event.address(oracle_address).query().await.unwrap();
+                let evm_input = env.into_input().await.unwrap();
+                ProofType::Continuation {
+                    evm_input,
+                    prior_membership,
+                }
+            }
+            None => ProofType::Initial,
+        };
+
         let block_multiproof = MultiproofBuilder::new()
             .with_gindex(gindices::block_slot_gindex().try_into()?)
             .with_gindex(gindices::state_root_gindex().try_into()?)
@@ -126,21 +156,20 @@ impl<'a> Input<'a> {
 
         let validators_multiproof = MultiproofBuilder::new()
             .with_gindex(gindices::length_gindex().try_into()?)
-            .with_gindices((0..beacon_state.validators().len()).map(|i| {
+            .with_gindices((start_index..beacon_state.validators().len()).map(|i| {
                 gindices::withdrawal_credentials_gindex(i as u64)
                     .try_into()
                     .unwrap()
             }))
             .with_gindices(
-                membership
+                membership[start_index..]
                     .iter_ones()
                     .map(|i| gindices::exit_epoch_gindex(i as u64).try_into().unwrap()),
             )
             .build(beacon_state.validators())?;
 
         Ok(Self {
-            self_program_id: self_program_id.into(),
-            proof_type: ProofType::Initial,
+            proof_type,
             block_root,
             block_multiproof,
             state_multiproof,

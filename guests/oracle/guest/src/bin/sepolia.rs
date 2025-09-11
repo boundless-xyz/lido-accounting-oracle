@@ -14,6 +14,7 @@
 
 #![no_main]
 
+use alloy_primitives::Address;
 use lido_oracle_core::sepolia::{WITHDRAWAL_CREDENTIALS, WITHDRAWAL_VAULT_ADDRESS};
 use risc0_steel::ethereum::ETH_SEPOLIA_CHAIN_SPEC;
 
@@ -24,5 +25,6 @@ fn main() {
         &ETH_SEPOLIA_CHAIN_SPEC,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
+        Address::ZERO, // TODO: This needs to be set when contract deployed
     );
 }

@@ -50,7 +50,7 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IOracleProofReceiver {
     mapping(uint256 => Report) public reports;
 
     /// @notice Emitted when a new report is stored.
-    event ReportUpdated(uint256 refSlot, Report r);
+    event ReportUpdated(uint256 refSlot, bytes32 membershipCommitment, uint64 nValidators, Report report);
 
     /// @notice Initialize the contract, binding it to a specified RISC Zero verifier.
     constructor(IRiscZeroVerifier _verifier, uint256 _genesis_block_timestamp) {

@@ -16,6 +16,7 @@ alloy = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
+bitvec = { workspace = true }
 clap = { version = "4.0", features = ["derive", "env"] }
 log = { workspace = true }
 risc0-ethereum-contracts = { workspace = true }

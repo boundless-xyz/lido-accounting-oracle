@@ -29,7 +29,14 @@ sol! {
         Commitment commitment;
         // `hash_bitvec`` of the resulting membership bitfield
         bytes32 membershipCommitment;
-        // Committing to the program ID allow recursion without creating a circular dependency
-        bytes32 programId;
     }
+
+    struct Report {
+        uint256 clBalanceGwei;
+        uint256 withdrawalVaultBalanceWei;
+        uint256 totalDepositedValidators;
+        uint256 totalExitedValidators;
+    }
+
+    event ReportUpdated(uint256 refSlot, bytes32 membershipCommitment, uint64 nValidators, Report report);
 }
