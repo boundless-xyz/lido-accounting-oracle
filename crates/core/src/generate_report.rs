@@ -94,7 +94,7 @@ pub fn generate_oracle_report(
                         e.report.totalExitedValidators.try_into().unwrap(),
                     )
                 })
-                .unwrap()
+                .expect("No matching logs found")
         }
     };
 

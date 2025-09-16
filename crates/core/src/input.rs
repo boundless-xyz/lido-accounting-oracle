@@ -73,7 +73,7 @@ pub enum ProofType {
 #[cfg(feature = "builder")]
 impl<'a> Input<'a> {
     /// Build an oracle proof for all validators in the beacon state
-    pub async fn build_initial<P>(
+    pub async fn build<P>(
         spec: &EthChainSpec,
         block_header: &BeaconBlockHeader,
         beacon_state: &BeaconState,
@@ -100,7 +100,6 @@ impl<'a> Input<'a> {
             let account = Account::preflight(withdrawal_vault_address, &mut env);
             account.bytecode(true).info().await.unwrap()
         };
-        let evm_input = env.into_input().await.unwrap();
 
         tracing::info!("withdrawal_vault balance: {}", _preflight_info.balance);
 
@@ -122,16 +121,30 @@ impl<'a> Input<'a> {
 
         let proof_type = match prior_report_block {
             Some(block) => {
-                let mut env = EthEvmEnv::builder()
+                use risc0_steel::SteelVerifier;
+
+                let mut prior_env = EthEvmEnv::builder()
                     .provider(provider)
                     .chain_spec(&spec)
                     .block_number(block)
                     .build()
                     .await
                     .unwrap();
-                let event = Event::preflight::<ReportUpdated>(&mut env);
-                let _logs = event.address(oracle_address).query().await.unwrap();
-                let evm_input = env.into_input().await.unwrap();
+                let event = Event::preflight::<ReportUpdated>(&mut prior_env);
+                let logs = event.address(oracle_address).query().await.unwrap();
+                assert!(
+                    !logs.is_empty(),
+                    "no prior ReportUpdated events found for the given oracle address"
+                );
+                let commitment = prior_env.commitment();
+                let evm_input = prior_env.into_input().await.unwrap();
+
+                // Preflight verificiation of this commitment with the top level env
+                SteelVerifier::preflight(&mut env)
+                    .verify(&commitment)
+                    .await
+                    .unwrap();
+
                 ProofType::Continuation {
                     evm_input,
                     prior_membership,
@@ -174,7 +187,7 @@ impl<'a> Input<'a> {
             block_multiproof,
             state_multiproof,
             validators_multiproof,
-            evm_input,
+            evm_input: env.into_input().await.unwrap(),
         })
     }
 }

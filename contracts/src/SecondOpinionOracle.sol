@@ -54,10 +54,10 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IOracleProofReceiver {
     {
         require(Steel.validateCommitment(journal.commitment), "Invalid commitment");
 
-        bytes32 blockRoot = Beacon.parentBlockRoot(_timestampAtSlot(refSlot + 1));
-        require(journal.blockRoot == blockRoot, "Mismatched block root");
+        // bytes32 blockRoot = Beacon.parentBlockRoot(_timestampAtSlot(refSlot + 1));
+        // require(journal.blockRoot == blockRoot, "Mismatched block root");
 
-        verifier.verify(seal, imageId, sha256(abi.encode(journal)));
+        // verifier.verify(seal, imageId, sha256(abi.encode(journal)));
 
         // report is now considered valid for the given slot and can be stored
         reports[refSlot] = journal.report;

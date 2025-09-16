@@ -44,7 +44,7 @@ sol! {
             external;
     }
 
-    event ReportUpdated(uint256 refSlot, bytes32 membershipCommitment, uint64 nValidators, Report report);
+    event ReportUpdated(uint256 refSlot, bytes32 membershipCommitment, Report report);
 }
 
 impl From<risc0_steel::Commitment> for Commitment {
