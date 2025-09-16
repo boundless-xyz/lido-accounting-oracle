@@ -14,6 +14,7 @@ gindices = { workspace = true }
 risc0-steel = { workspace = true, default-features = false }
 serde.workspace = true
 alloy-primitives.workspace = true
+alloy-contract.workspace = true
 alloy-sol-types.workspace = true
 risc0-zkvm.workspace = true
 bitvec.workspace = true
@@ -38,3 +39,4 @@ oracle_builder = { workspace = true }
 tokio = { workspace = true }
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 hex = { workspace = true }
+regex = "1.11.2"

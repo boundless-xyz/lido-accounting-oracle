@@ -13,18 +13,23 @@
 // limitations under the License.
 
 use std::process::Command;
+use std::str::FromStr;
 
-use alloy_primitives::U256;
+use alloy::hex::FromHex;
+use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::{utils::parse_ether, Address};
+use alloy_primitives::{Bytes, U256};
 use bitvec::vec::BitVec;
 use ethereum_consensus::phase0::presets::mainnet::BeaconBlockHeader;
 use ethereum_consensus::ssz::prelude::*;
+use lido_oracle_core::soltypes::IOracleProofReceiver;
 use lido_oracle_core::{
     generate_oracle_report,
     input::Input,
     mainnet::{WITHDRAWAL_CREDENTIALS, WITHDRAWAL_VAULT_ADDRESS},
     ANVIL_CHAIN_SPEC,
 };
+use regex::Regex;
 use test_utils::{TestStateBuilder, CAPELLA_FORK_SLOT};
 
 use alloy::{
@@ -33,7 +38,7 @@ use alloy::{
 };
 
 /// Returns an Anvil provider the oracle contracts deployed and the WITHDRAWAL_VAULT_ADDRESS balance set to 33 ether
-async fn test_provider() -> (AnvilInstance, impl Provider + Clone) {
+async fn test_provider() -> (AnvilInstance, impl Provider + Clone, Address) {
     // Launch Anvil with desired args
     let anvil = Anvil::new().args(["--hardfork", "cancun"]).spawn();
 
@@ -41,8 +46,13 @@ async fn test_provider() -> (AnvilInstance, impl Provider + Clone) {
     let rpc_url = anvil.endpoint();
     println!("Anvil RPC running at: {}", rpc_url);
 
+    let private_key = format!("0x{}", hex::encode(anvil.keys()[0].to_bytes()));
+    let signer = PrivateKeySigner::from_str(&private_key).unwrap();
+
     // Build provider against that URL
-    let provider = ProviderBuilder::new().connect_http(rpc_url.parse().unwrap());
+    let provider = ProviderBuilder::new()
+        .wallet(signer)
+        .connect_http(rpc_url.parse().unwrap());
     let node_info = provider.anvil_node_info().await.unwrap();
     println!("Anvil started: {:?}", node_info);
 
@@ -57,10 +67,7 @@ async fn test_provider() -> (AnvilInstance, impl Provider + Clone) {
     // deploy the Oracle contracts using the deploy script
     let output = Command::new("forge")
         .current_dir("../../contracts/")
-        .env(
-            "ETH_WALLET_PRIVATE_KEY",
-            &format!("0x{}", hex::encode(anvil.keys()[0].to_bytes())),
-        )
+        .env("ETH_WALLET_PRIVATE_KEY", &private_key)
         .args([
             "script",
             "./script/Deploy.s.sol:Deploy",
@@ -71,19 +78,28 @@ async fn test_provider() -> (AnvilInstance, impl Provider + Clone) {
         ])
         .output()
         .expect("failed to execute forge script");
-    println!("Deploy command: {}", output.status);
 
-    println!(
-        "Deploy output: {:?}",
-        String::from_utf8_lossy(&output.stdout)
-    );
+    // Regex: captures lines like 'Deployed <ContractName> to <Address>'
+    let re = Regex::new(r"Deployed SecondOpinionOracle to (0x[0-9a-fA-F]{40})").unwrap();
 
-    (anvil, provider)
+    let addr = Address::from_hex(
+        re.captures_iter(&String::from_utf8_lossy(&output.stdout))
+            .next()
+            .expect(
+                "could not find deployed contract address of SecondOpinionOracle in forge output",
+            )[1]
+        .to_string(),
+    )
+    .unwrap();
+
+    println!("Deployed contract: {}", addr);
+
+    (anvil, provider, addr)
 }
 
 #[tokio::test]
 async fn test_initial() -> anyhow::Result<()> {
-    let (_anvil, provider) = test_provider().await;
+    let (_anvil, provider, addr) = test_provider().await;
 
     let mut b = TestStateBuilder::new(CAPELLA_FORK_SLOT);
     b.with_validators(5);
@@ -133,6 +149,12 @@ async fn test_initial() -> anyhow::Result<()> {
     assert_eq!(journal.report.clBalanceGwei, U256::from(10 * 9));
 
     // submit to the oracle contract
+    IOracleProofReceiver::new(addr, &provider)
+        .update(s.slot().try_into().unwrap(), journal, Bytes::new())
+        .send()
+        .await?
+        .watch()
+        .await?;
 
     Ok(())
 }

@@ -15,6 +15,7 @@ test-utils.path = "./crates/test-utils"
 beacon-state.path = "./crates/beacon-state"
 
 alloy = { version = "0.15", features = ["full"] }
+alloy-contract = { version = "0.15" }
 alloy-primitives = { version = "1.2.1", default-features = false, features = ["rlp", "serde", "std"] }
 alloy-sol-types = { version = "1.2.1" }
 anyhow = { version = "1.0.75" }

@@ -38,6 +38,7 @@ sol! {
         uint256 totalExitedValidators;
     }
 
+    #[sol(rpc)]
     contract IOracleProofReceiver {
         function update(uint256 refSlot, Journal calldata journal, bytes calldata seal)
             external;

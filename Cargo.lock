@@ -3603,6 +3603,7 @@ name = "lido_oracle_core"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "alloy-contract",
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
@@ -3613,6 +3614,7 @@ dependencies = [
  "gindices",
  "hex",
  "oracle_builder",
+ "regex",
  "revm",
  "risc0-steel",
  "risc0-zkvm",
