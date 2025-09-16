@@ -24,7 +24,7 @@ use ssz_multiproofs::Multiproof;
 #[cfg(feature = "builder")]
 use {
     crate::build_with_versioned_state,
-    crate::journal::ReportUpdated,
+    crate::soltypes::ReportUpdated,
     crate::Result,
     alloy_primitives::Address,
     beacon_state::mainnet::BeaconState,

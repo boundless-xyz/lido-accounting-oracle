@@ -16,6 +16,17 @@
 
 pragma solidity ^0.8.20;
 
+import {Steel} from "risc0/steel/Steel.sol";
+import {Report} from "./IOracleProofReceiver.sol";
+
+/// @notice The journal written by the RISC Zero verifier.
+struct Journal {
+    Report report;
+    bytes32 blockRoot;
+    Steel.Commitment commitment;
+    bytes32 membershipCommitment;
+}
+
 /// @title LIP-23 beacon chain oracle interface
 interface ISecondOpinionOracle {
     function getReport(uint256 refSlot)

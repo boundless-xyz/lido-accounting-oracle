@@ -13,24 +13,24 @@
 // limitations under the License.
 
 use alloy_sol_types::sol;
-use risc0_steel::Commitment;
 
 sol! {
     #[derive(Debug)]
-    struct Journal {
-        // LIP-23 oracle fields
-        uint256 clBalanceGwei;
-        uint256 withdrawalVaultBalanceWei;
-        uint256 totalDepositedValidators;
-        uint256 totalExitedValidators;
-        bytes32 blockRoot;
+    struct Commitment {
+        uint256 id;
+        bytes32 digest;
+        bytes32 configID;
+    }
 
-        // Non-oracle fields commit to Steel environment and membership for continuation
+    #[derive(Debug)]
+    struct Journal {
+        Report report;
+        bytes32 blockRoot;
         Commitment commitment;
-        // `hash_bitvec`` of the resulting membership bitfield
         bytes32 membershipCommitment;
     }
 
+    #[derive(Debug)]
     struct Report {
         uint256 clBalanceGwei;
         uint256 withdrawalVaultBalanceWei;
@@ -38,5 +38,20 @@ sol! {
         uint256 totalExitedValidators;
     }
 
+    contract IOracleProofReceiver {
+        function update(uint256 refSlot, Journal calldata journal, bytes calldata seal)
+            external;
+    }
+
     event ReportUpdated(uint256 refSlot, bytes32 membershipCommitment, uint64 nValidators, Report report);
+}
+
+impl From<risc0_steel::Commitment> for Commitment {
+    fn from(c: risc0_steel::Commitment) -> Self {
+        Commitment {
+            id: c.id.into(),
+            digest: c.digest.into(),
+            configID: c.configID.into(),
+        }
+    }
 }

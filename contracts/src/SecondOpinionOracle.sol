@@ -18,22 +18,12 @@ pragma solidity ^0.8.20;
 
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {Steel, Beacon} from "risc0/steel/Steel.sol";
-import {ISecondOpinionOracle} from "./ISecondOpinionOracle.sol";
+import {Journal, ISecondOpinionOracle} from "./ISecondOpinionOracle.sol";
 import {ImageID} from "./ImageID.sol"; // auto-generated contract after running `cargo build`.
 import {Report, IOracleProofReceiver} from "./IOracleProofReceiver.sol";
 
 /// @title LIP-23 Compatible Oracle implemented using RISC Zero
 contract SecondOpinionOracle is ISecondOpinionOracle, IOracleProofReceiver {
-    /// @notice The journal written by the RISC Zero verifier.
-    struct Journal {
-        uint256 clBalanceGwei;
-        uint256 withdrawalVaultBalanceWei;
-        uint256 totalDepositedValidators;
-        uint256 totalExitedValidators;
-        bytes32 blockRoot;
-        Steel.Commitment commitment;
-    }
-
     /// @notice RISC Zero verifier contract address.
     IRiscZeroVerifier public immutable verifier;
 
@@ -50,7 +40,7 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IOracleProofReceiver {
     mapping(uint256 => Report) public reports;
 
     /// @notice Emitted when a new report is stored.
-    event ReportUpdated(uint256 refSlot, bytes32 membershipCommitment, uint64 nValidators, Report report);
+    event ReportUpdated(uint256 refSlot, bytes32 membershipCommitment, Report report);
 
     /// @notice Initialize the contract, binding it to a specified RISC Zero verifier.
     constructor(IRiscZeroVerifier _verifier, uint256 _genesis_block_timestamp) {
@@ -59,27 +49,19 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IOracleProofReceiver {
     }
 
     /// @notice Set an oracle report for a given slot by verifying the ZK proof
-    function update(uint256 refSlot, Report calldata r, bytes calldata seal, Steel.Commitment calldata commitment)
+    function update(uint256 refSlot, Journal calldata journal, bytes calldata seal)
         external
     {
-        require(Steel.validateCommitment(commitment), "Invalid commitment");
+        require(Steel.validateCommitment(journal.commitment), "Invalid commitment");
 
         bytes32 blockRoot = Beacon.parentBlockRoot(_timestampAtSlot(refSlot + 1));
-
-        Journal memory journal = Journal({
-            clBalanceGwei: r.clBalanceGwei,
-            withdrawalVaultBalanceWei: r.withdrawalVaultBalanceWei,
-            totalDepositedValidators: r.totalDepositedValidators,
-            totalExitedValidators: r.totalExitedValidators,
-            blockRoot: blockRoot,
-            commitment: commitment
-        });
+        require(journal.blockRoot == blockRoot, "Mismatched block root");
 
         verifier.verify(seal, imageId, sha256(abi.encode(journal)));
 
         // report is now considered valid for the given slot and can be stored
-        reports[refSlot] = r;
-        emit ReportUpdated(refSlot, r);
+        reports[refSlot] = journal.report;
+        emit ReportUpdated(refSlot, journal.membershipCommitment, journal.report);
     }
 
     /// @notice Returns the number stored.

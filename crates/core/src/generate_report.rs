@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::input::{Input, ProofType};
-use crate::journal::{Journal, ReportUpdated};
+use crate::soltypes::{Journal, Report, ReportUpdated};
 use crate::{error, u64_from_b256, Node};
 use alloy_primitives::{Address, U256};
 use bitvec::prelude::*;
@@ -134,12 +134,14 @@ pub fn generate_oracle_report(
 
     // Commit the journal
     let journal = Journal {
-        clBalanceGwei: U256::from(cl_balance),
-        withdrawalVaultBalanceWei: withdrawal_vault_balance.into(),
-        totalDepositedValidators: U256::from(num_lido_validators),
-        totalExitedValidators: U256::from(num_exited_validators),
+        report: Report {
+            clBalanceGwei: U256::from(cl_balance),
+            withdrawalVaultBalanceWei: withdrawal_vault_balance.into(),
+            totalDepositedValidators: U256::from(num_lido_validators),
+            totalExitedValidators: U256::from(num_exited_validators),
+        },
         blockRoot: block_root,
-        commitment: evm_env.into_commitment(),
+        commitment: evm_env.into_commitment().into(),
         membershipCommitment: hash_bitvec(&membership).into(),
     };
 

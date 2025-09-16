@@ -17,6 +17,7 @@
 pragma solidity ^0.8.20;
 
 import {Steel} from "risc0/steel/Steel.sol";
+import {Journal} from "./ISecondOpinionOracle.sol";
 
 struct Report {
     uint256 clBalanceGwei;
@@ -27,6 +28,6 @@ struct Report {
 
 /// @title Receiver of oracle reports and proof data
 interface IOracleProofReceiver {
-    function update(uint256 refSlot, Report calldata r, bytes calldata seal, Steel.Commitment calldata commitment)
+    function update(uint256 refSlot, Journal calldata journal, bytes calldata seal)
         external;
 }

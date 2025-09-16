@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["cli", "guests/oracle", "crates/gindices", "crates/core", "crates/test-utils", "crates/beacon-state"]
+members = ["guests/oracle", "crates/gindices", "crates/core", "crates/test-utils", "crates/beacon-state"]
 
 [workspace.package]
 version = "0.1.0"
@@ -36,7 +36,7 @@ ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus.
 ssz_rs = { git = "https://github.com/willemolding/ssz-rs", rev = "d939604c3693aadaff63dcacf9a810d8845fafef"}
 ssz-multiproofs = { git = "https://github.com/boundless-xyz/Signal-Ethereum", rev = "b0ff3ade8ae689431e355b97070bcdb4fefaa0cd" }
 
-serde = { version = "1.0", features = ["derive", "std"] }
+serde = { version = "=1.0.219", features = ["derive", "std"] }
 serde_json = "1.0.133"
 url = { version = "2.5" }
 bitvec = { version = "1", features = ["serde"] }
