@@ -229,11 +229,11 @@ async fn test_initial_and_continuation() -> anyhow::Result<()> {
             addr,
         )?;
 
-        // assert_eq!(
-        //     journal.report.withdrawalVaultBalanceWei,
-        //     parse_ether("33").unwrap()
-        // );
-        // assert_eq!(journal.report.clBalanceGwei, U256::from(10 * 9));
+        assert_eq!(
+            journal.report.withdrawalVaultBalanceWei,
+            parse_ether("33").unwrap()
+        );
+        assert_eq!(journal.report.clBalanceGwei, U256::from(10 * 10));
     }
     Ok(())
 }

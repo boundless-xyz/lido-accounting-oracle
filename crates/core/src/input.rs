@@ -170,14 +170,19 @@ impl<'a> Input<'a> {
         let validators_multiproof = MultiproofBuilder::new()
             .with_gindex(gindices::length_gindex().try_into()?)
             .with_gindices((start_index..beacon_state.validators().len()).map(|i| {
+                println!("Including validator {}", i);
                 gindices::withdrawal_credentials_gindex(i as u64)
                     .try_into()
                     .unwrap()
             }))
             .with_gindices(
-                membership[start_index..]
+                membership
                     .iter_ones()
-                    .map(|i| gindices::exit_epoch_gindex(i as u64).try_into().unwrap()),
+                    .filter(|i| i >= &start_index)
+                    .map(|i| {
+                        println!("Including exit epoch for validator {}", i);
+                        gindices::exit_epoch_gindex(i as u64).try_into().unwrap()
+                    }),
             )
             .build(beacon_state.validators())?;
 
