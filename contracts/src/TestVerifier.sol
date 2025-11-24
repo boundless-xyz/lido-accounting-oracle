@@ -27,7 +27,7 @@ contract TestVerifier is ITestVerifier {
     IRiscZeroVerifier public immutable verifier;
 
     /// @notice Image ID of the only zkVM guest to accept verification from.
-    bytes32 public constant imageId = ImageID.MAINNET_ID;
+    bytes32 public constant IMAGE_ID = ImageID.MAINNET_ID;
 
     /// @notice Initialize the contract, binding it to a specified RISC Zero verifier.
     constructor(IRiscZeroVerifier _verifier) {
@@ -40,6 +40,6 @@ contract TestVerifier is ITestVerifier {
         bytes memory journal = abi.encodePacked(
             blockRoot, r.clBalanceGwei, r.withdrawalVaultBalanceWei, r.totalDepositedValidators, r.totalExitedValidators
         );
-        verifier.verify(seal, imageId, sha256(journal));
+        verifier.verify(seal, IMAGE_ID, sha256(journal));
     }
 }

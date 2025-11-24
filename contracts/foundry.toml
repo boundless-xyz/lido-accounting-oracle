@@ -6,6 +6,7 @@ test = "tests"
 ffi = true
 fs_permissions = [{ access = "read-write", path = "./"}]
 remappings = [
+    "boundless/=dependencies/boundless-1.1.1/contracts/src/",
     "forge-std/=dependencies/forge-std-1.9.5/src/",
     "openzeppelin/contracts/=dependencies/@openzeppelin-contracts-5.1.0/",
     "risc0/=dependencies/risc0-2.1.0/contracts/src/",
@@ -15,6 +16,7 @@ remappings = [
 forge-std = "1.9.5"
 "@openzeppelin-contracts" = "5.1.0"
 risc0 = { version = "2.1.0", git = "https://github.com/risc0/risc0-ethereum.git", tag = "v2.1.0" }
+boundless = { version = "1.1.1", git = "https://github.com/boundless-xyz/boundless", tag = "v1.1.1" }
 
 [soldeer]
 remappings_generate = true

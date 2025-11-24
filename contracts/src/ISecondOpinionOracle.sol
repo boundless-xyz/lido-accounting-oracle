@@ -17,10 +17,17 @@
 pragma solidity ^0.8.20;
 
 import {Steel} from "risc0/steel/Steel.sol";
-import {Report} from "./IOracleProofReceiver.sol";
+
+struct Report {
+    uint256 clBalanceGwei;
+    uint256 withdrawalVaultBalanceWei;
+    uint256 totalDepositedValidators;
+    uint256 totalExitedValidators;
+}
 
 /// @notice The journal written by the RISC Zero verifier.
 struct Journal {
+    uint256 refSlot;
     Report report;
     bytes32 blockRoot;
     Steel.Commitment commitment;

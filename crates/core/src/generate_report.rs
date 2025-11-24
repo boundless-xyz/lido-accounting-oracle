@@ -135,6 +135,7 @@ pub fn generate_oracle_report(
 
     // Commit the journal
     let journal = Journal {
+        refSlot: U256::from(slot),
         report: Report {
             clBalanceGwei: U256::from(cl_balance),
             withdrawalVaultBalanceWei: withdrawal_vault_balance.into(),

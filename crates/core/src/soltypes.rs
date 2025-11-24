@@ -24,6 +24,7 @@ sol! {
 
     #[derive(Debug)]
     struct Journal {
+        uint256 refSlot;
         Report report;
         bytes32 blockRoot;
         Commitment commitment;
