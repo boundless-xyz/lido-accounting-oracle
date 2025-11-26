@@ -6,11 +6,8 @@ build:
 
 ## Proving tasks
 
-prove_init slot: build
+prove slot: build
     ./target/release/cli --slot {{slot}} gen-input --out ./membership_proof_{{slot}}.proof initial
-
-prove_continuation prior_slot slot: build
-    ./target/release/cli --slot {{slot}} prove --out ./membership_proof_{{slot}}.proof continuation-from ./membership_proof_{{prior_slot}}.proof
 
 ## Submission to chain
 

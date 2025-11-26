@@ -23,7 +23,6 @@ pub fn entry(
     spec: &EthChainSpec,
     withdrawal_credentials: &[u8; 32],
     withdrawal_vault_address: Address,
-    oracle_contract_address: Address,
 ) {
     env::log("Reading input");
     let input_bytes = env::read_frame();
@@ -31,12 +30,12 @@ pub fn entry(
     env::log("Deserializing input");
     let input: Input = deserialize(&input_bytes).expect("Failed to deserialize input");
 
+    env::log("Generating report");
     let journal = generate_oracle_report(
         input,
         spec,
         withdrawal_credentials,
         withdrawal_vault_address,
-        oracle_contract_address,
     )
     .expect("Failed to Generate oracle report");
 

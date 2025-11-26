@@ -24,7 +24,6 @@ import {RiscZeroGroth16Verifier} from "risc0/groth16/RiscZeroGroth16Verifier.sol
 import {ControlID} from "risc0/groth16/ControlID.sol";
 
 import {SecondOpinionOracle} from "../src/SecondOpinionOracle.sol";
-import {TestVerifier} from "../src/TestVerifier.sol";
 
 /// @notice Deployment script for the Lido oracle
 contract Deploy is Script, RiscZeroCheats {
@@ -92,9 +91,6 @@ contract Deploy is Script, RiscZeroCheats {
 
         SecondOpinionOracle oracle = new SecondOpinionOracle(verifier, genesisTimestamp);
         console2.log("Deployed SecondOpinionOracle to", address(oracle));
-
-        TestVerifier testVerifier = new TestVerifier(verifier);
-        console2.log("Deployed TestVerifier to", address(testVerifier));
 
         vm.stopBroadcast();
     }

@@ -18,19 +18,18 @@ use std::str::FromStr;
 use alloy::hex::FromHex;
 use alloy::signers::local::PrivateKeySigner;
 use alloy_primitives::{utils::parse_ether, Address};
-use alloy_primitives::{Bytes, U256};
-use bitvec::order::Lsb0;
-use bitvec::vec::BitVec;
+use alloy_primitives::{Bytes, B256, U256};
+use alloy_sol_types::SolValue;
 use ethereum_consensus::phase0::presets::mainnet::BeaconBlockHeader;
 use ethereum_consensus::ssz::prelude::*;
-use lido_oracle_core::input::ProofType;
-use lido_oracle_core::soltypes::IOracleProofReceiver;
+use lido_oracle_core::soltypes::IBoundlessMarketCallback;
 use lido_oracle_core::{
     generate_oracle_report,
     input::Input,
     mainnet::{WITHDRAWAL_CREDENTIALS, WITHDRAWAL_VAULT_ADDRESS},
     ANVIL_CHAIN_SPEC,
 };
+use oracle_builder::MAINNET_ID;
 use regex::Regex;
 use test_utils::{TestStateBuilder, CAPELLA_FORK_SLOT};
 
@@ -102,138 +101,65 @@ async fn test_provider() -> (AnvilInstance, impl Provider + Clone, Address) {
 }
 
 #[tokio::test]
-async fn test_initial_and_continuation() -> anyhow::Result<()> {
+async fn test_submit_report() -> anyhow::Result<()> {
     let (_anvil, provider, addr) = test_provider().await;
 
-    let prior_membership = {
-        let mut b = TestStateBuilder::new(CAPELLA_FORK_SLOT);
-        b.with_validators(5);
-        b.with_lido_validators(5);
-        b.with_validators(3);
-        b.with_lido_validators(4);
+    let mut b = TestStateBuilder::new(CAPELLA_FORK_SLOT);
+    b.with_validators(5);
+    b.with_lido_validators(5);
+    b.with_validators(3);
+    b.with_lido_validators(4);
 
-        let s = b.clone().build();
+    let s = b.clone().build();
 
-        let mut block_header = BeaconBlockHeader::default();
-        block_header.slot = s.slot();
-        block_header.state_root = s.hash_tree_root().unwrap();
-        let membership = s
-            .validators()
-            .iter()
-            .map(|v| v.withdrawal_credentials.as_slice() == WITHDRAWAL_CREDENTIALS.as_slice())
-            .collect::<BitVec<u32, Lsb0>>();
+    let mut block_header = BeaconBlockHeader::default();
+    block_header.slot = s.slot();
+    block_header.state_root = s.hash_tree_root().unwrap();
 
-        let execution_block_root = provider
-            .get_block_by_number(1.into())
-            .await?
-            .unwrap()
-            .into_header()
-            .hash;
+    let execution_block_root = provider
+        .get_block_by_number(1.into())
+        .await?
+        .unwrap()
+        .into_header()
+        .hash;
 
-        let input = Input::build(
-            &ANVIL_CHAIN_SPEC,
-            &block_header,
-            &s,
-            &execution_block_root,
-            &WITHDRAWAL_CREDENTIALS,
-            WITHDRAWAL_VAULT_ADDRESS,
-            addr,
-            BitVec::new(),
-            None,
-            provider.clone(),
+    let input = Input::build(
+        &ANVIL_CHAIN_SPEC,
+        &block_header,
+        &s,
+        &execution_block_root,
+        &WITHDRAWAL_CREDENTIALS,
+        WITHDRAWAL_VAULT_ADDRESS,
+        provider.clone(),
+    )
+    .await?;
+
+    let journal = generate_oracle_report(
+        input,
+        &ANVIL_CHAIN_SPEC,
+        &WITHDRAWAL_CREDENTIALS,
+        WITHDRAWAL_VAULT_ADDRESS,
+    )?;
+
+    assert_eq!(
+        journal.report.withdrawalVaultBalanceWei,
+        parse_ether("33").unwrap()
+    );
+    assert_eq!(journal.report.clBalanceGwei, U256::from(10 * 9));
+
+    // submit to the oracle contract
+    let res = IBoundlessMarketCallback::new(addr, &provider)
+        .handleProof(
+            B256::from_slice(bytemuck::cast_slice(&MAINNET_ID[..])),
+            journal.abi_encode().into(),
+            Bytes::new(),
         )
+        .send()
+        .await?
+        .get_receipt()
         .await?;
-        match input.proof_type {
-            ProofType::Initial => {}
-            _ => panic!("expected initial proof type"),
-        }
 
-        let journal = generate_oracle_report(
-            input,
-            &ANVIL_CHAIN_SPEC,
-            &WITHDRAWAL_CREDENTIALS,
-            WITHDRAWAL_VAULT_ADDRESS,
-            addr,
-        )?;
+    println!("Oracle update tx: {:?}", res);
 
-        assert_eq!(
-            journal.report.withdrawalVaultBalanceWei,
-            parse_ether("33").unwrap()
-        );
-        assert_eq!(journal.report.clBalanceGwei, U256::from(10 * 9));
-
-        // submit to the oracle contract
-        let res = IOracleProofReceiver::new(addr, &provider)
-            .update(s.slot().try_into().unwrap(), journal, Bytes::new())
-            .send()
-            .await?
-            .get_receipt()
-            .await?;
-
-        println!("Oracle update tx: {:?}", res);
-
-        membership
-    };
-    /////////////////////////
-    // Test a continuation
-    /////////////////////////
-
-    {
-        provider.anvil_mine(Some(2), Some(1)).await.unwrap();
-
-        let mut b = TestStateBuilder::new(CAPELLA_FORK_SLOT);
-        b.with_validators(5);
-        b.with_lido_validators(5);
-        b.with_validators(3);
-        b.with_lido_validators(4);
-
-        // extra lines
-        b.with_lido_validators(1);
-        b.with_validators(1);
-
-        let s = b.clone().build();
-
-        let mut block_header = BeaconBlockHeader::default();
-        block_header.slot = s.slot();
-        block_header.state_root = s.hash_tree_root().unwrap();
-
-        let execution_block_root = provider
-            .get_block_by_number(6.into())
-            .await?
-            .unwrap()
-            .into_header()
-            .hash;
-
-        let input = Input::build(
-            &ANVIL_CHAIN_SPEC,
-            &block_header,
-            &s,
-            &execution_block_root,
-            &WITHDRAWAL_CREDENTIALS,
-            WITHDRAWAL_VAULT_ADDRESS,
-            addr,
-            prior_membership,
-            Some(5),
-            provider.clone(),
-        )
-        .await?;
-        match input.proof_type {
-            ProofType::Continuation { .. } => {}
-            _ => panic!("expected initial proof type"),
-        }
-        let journal = generate_oracle_report(
-            input,
-            &ANVIL_CHAIN_SPEC,
-            &WITHDRAWAL_CREDENTIALS,
-            WITHDRAWAL_VAULT_ADDRESS,
-            addr,
-        )?;
-
-        assert_eq!(
-            journal.report.withdrawalVaultBalanceWei,
-            parse_ether("33").unwrap()
-        );
-        assert_eq!(journal.report.clBalanceGwei, U256::from(10 * 10));
-    }
     Ok(())
 }

@@ -40,9 +40,8 @@ sol! {
     }
 
     #[sol(rpc)]
-    contract IOracleProofReceiver {
-        function update(uint256 refSlot, Journal calldata journal, bytes calldata seal)
-            external;
+    contract IBoundlessMarketCallback {
+        function handleProof(bytes32 imageId, bytes calldata journalBytes, bytes calldata seal) external;
     }
 
     event ReportUpdated(uint256 refSlot, bytes32 membershipCommitment, Report report);

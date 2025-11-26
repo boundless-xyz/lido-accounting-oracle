@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::input::{Input, ProofType};
-use crate::soltypes::{Journal, Report, ReportUpdated};
+use crate::input::Input;
+use crate::soltypes::{Journal, Report};
 use crate::{error, u64_from_b256, Node};
 use alloy_primitives::{Address, U256};
 use bitvec::prelude::*;
 use bitvec::vec::BitVec;
 use risc0_steel::ethereum::EthChainSpec;
-use risc0_steel::{Account, Event, SteelVerifier};
+use risc0_steel::Account;
 use sha2::{Digest, Sha256};
 use ssz_multiproofs::ValueIterator;
 
@@ -30,7 +30,6 @@ pub fn generate_oracle_report(
     spec: &EthChainSpec,
     withdrawal_credentials: &[u8; 32],
     withdrawal_vault_address: Address,
-    oracle_contract_address: Address,
 ) -> Result<Journal> {
     let Input {
         block_root,
@@ -38,7 +37,6 @@ pub fn generate_oracle_report(
         state_multiproof,
         validators_multiproof,
         evm_input,
-        proof_type,
     } = input;
 
     // obtain the withdrawal vault balance from the EVM input
@@ -66,37 +64,8 @@ pub fn generate_oracle_report(
     validators_multiproof.verify(&validators_root)?;
     let mut validators_values = validators_multiproof.values();
 
-    let (mut membership, mut num_lido_validators, mut num_exited_validators) = match proof_type {
-        ProofType::Initial => (BitVec::<u32, Lsb0>::new(), 0, 0),
-        ProofType::Continuation {
-            evm_input: cont_evm_input,
-            prior_membership,
-        } => {
-            let cont_evm_env = cont_evm_input.into_env(spec);
-
-            // verify this Steel env using the top level env
-            let verifier = SteelVerifier::new(&evm_env);
-            verifier.verify(cont_evm_env.commitment());
-
-            // Use the Steel commitment to verify the values we are continuing from
-            let event = Event::new::<ReportUpdated>(&cont_evm_env);
-            let logs = event.address(oracle_contract_address).query();
-            logs.first()
-                .map(|e| {
-                    assert_eq!(
-                        hash_bitvec(&prior_membership),
-                        e.membershipCommitment,
-                        "prior membership commitment check failed. Does not match the commitment in the journal of the prior proof"
-                    );
-                    (
-                        prior_membership,
-                        e.report.totalDepositedValidators.try_into().unwrap(),
-                        e.report.totalExitedValidators.try_into().unwrap(),
-                    )
-                })
-                .expect("No matching logs found")
-        }
-    };
+    let (mut membership, mut num_lido_validators, mut num_exited_validators) =
+        (BitVec::<u32, Lsb0>::new(), 0, 0);
 
     let n_validators = u64_from_b256(
         validators_multiproof
