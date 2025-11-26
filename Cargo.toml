@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["guests/oracle", "crates/gindices", "crates/core", "crates/test-utils", "crates/beacon-state"]
+members = ["guests/oracle", "crates/gindices", "crates/core", "crates/test-utils", "crates/beacon-state", "cli"]
 
 [workspace.package]
 version = "0.1.0"

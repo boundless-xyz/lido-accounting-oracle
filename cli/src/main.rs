@@ -64,11 +64,6 @@ alloy::sol!(
     }
 );
 
-alloy::sol!(
-    #[sol(rpc, all_derives)]
-    "../contracts/src/ITestVerifier.sol"
-);
-
 /// CLI for generating and submitting Lido oracle proofs
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -101,9 +96,6 @@ enum Command {
 
         #[clap(long = "out", short)]
         out_path: PathBuf,
-
-        #[clap(subcommand)]
-        command: ProveCommand,
     },
     /// Generate a proof from a given input
     Prove {
@@ -113,9 +105,6 @@ enum Command {
 
         #[clap(long = "out", short)]
         out_path: PathBuf,
-
-        #[clap(subcommand)]
-        command: Option<ProveCommand>,
     },
     /// Submit an aggregation proof to the oracle contract
     Submit {
@@ -132,20 +121,6 @@ enum Command {
     },
 }
 
-#[derive(Parser, Debug)]
-enum ProveCommand {
-    /// An initial membership proof
-    Initial,
-    /// An aggregation (oracle) proof that can be submitted on-chain
-    ContinuationFrom {
-        prior_proof_path: PathBuf,
-
-        // Ethereum execution node HTTP RPC endpoint.
-        #[clap(long, env)]
-        eth_rpc_url: Url,
-    },
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
@@ -158,20 +133,10 @@ async fn main() -> Result<()> {
     match args.command {
         Command::GenInput {
             out_path,
-            command,
             beacon_rpc_url,
         } => {
-            let input = match command {
-                ProveCommand::Initial => {
-                    build_input(args.slot, beacon_rpc_url, args.eth_rpc_url, args.contract).await?
-                }
-                ProveCommand::ContinuationFrom {
-                    prior_proof_path,
-                    eth_rpc_url,
-                } => {
-                    todo!();
-                }
-            };
+            let input =
+                build_input(args.slot, beacon_rpc_url, args.eth_rpc_url, args.contract).await?;
 
             // sanity check
             let report = generate_oracle_report(
@@ -179,7 +144,6 @@ async fn main() -> Result<()> {
                 &ETH_MAINNET_CHAIN_SPEC,
                 &WITHDRAWAL_CREDENTIALS,
                 WITHDRAWAL_VAULT_ADDRESS,
-                args.contract,
             )?;
             tracing::info!("Input generates report: {:?}", report);
 
@@ -195,19 +159,9 @@ async fn main() -> Result<()> {
         Command::Prove {
             beacon_rpc_url,
             out_path,
-            command,
         } => {
-            let input = match command {
-                None | Some(ProveCommand::Initial) => {
-                    build_input(args.slot, beacon_rpc_url, args.eth_rpc_url, args.contract).await?
-                }
-                Some(ProveCommand::ContinuationFrom {
-                    prior_proof_path,
-                    eth_rpc_url,
-                }) => {
-                    todo!();
-                }
-            };
+            let input =
+                build_input(args.slot, beacon_rpc_url, args.eth_rpc_url, args.contract).await?;
 
             let proof = build_proof(input, args.slot).await?;
             write(out_path, bincode::serialize(&proof)?)?;
