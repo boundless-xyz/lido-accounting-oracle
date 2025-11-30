@@ -15,54 +15,31 @@
 mod beacon_client;
 
 use alloy::{
-    dyn_abi::SolType, network::EthereumWallet, primitives::Address, providers::ProviderBuilder,
+    network::EthereumWallet, primitives::Address, providers::ProviderBuilder,
     signers::local::PrivateKeySigner,
 };
-use anyhow::{Context, Result};
+use alloy_primitives::B256;
+use anyhow::{bail, Context, Result};
 use beacon_client::BeaconClient;
-use bitvec::vec::BitVec;
 use clap::Parser;
-use ethereum_consensus::{
-    phase0::mainnet::{HistoricalBatch, SLOTS_PER_HISTORICAL_ROOT},
-    ssz::prelude::Serialize,
-};
 use lido_oracle_core::{
     generate_oracle_report,
     input::Input,
     mainnet::{WITHDRAWAL_CREDENTIALS, WITHDRAWAL_VAULT_ADDRESS},
-    ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC,
+    soltypes::IBoundlessMarketCallback,
+    ETH_MAINNET_CHAIN_SPEC,
 };
 use oracle_builder::{MAINNET_ELF, MAINNET_ID};
-use risc0_ethereum_contracts::encode_seal;
-use risc0_steel::{ethereum::EthEvmEnv, Account};
-use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, Receipt, VerifierContext};
+use risc0_zkvm::{
+    default_prover, sha::Digestible, ExecutorEnv, InnerReceipt, ProverOpts, Receipt,
+    VerifierContext,
+};
 use std::{
     fs::{read, write},
     path::PathBuf,
 };
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
-
-alloy::sol!(
-    struct Report {
-        uint256 clBalanceGwei;
-        uint256 withdrawalVaultBalanceWei;
-        uint256 totalDepositedValidators;
-        uint256 totalExitedValidators;
-    }
-
-    struct Commitment {
-        uint256 id;
-        bytes32 digest;
-        bytes32 configID;
-    }
-
-    /// @title Receiver of oracle reports and proof data
-    #[sol(rpc, all_derives)]
-    interface IOracleProofReceiver {
-        function update(uint256 refSlot, Report calldata r, bytes calldata seal, Commitment calldata commitment) external;
-    }
-);
 
 /// CLI for generating and submitting Lido oracle proofs
 #[derive(Parser, Debug)]
@@ -111,10 +88,6 @@ enum Command {
         /// Eth key to sign with
         #[clap(long, env)]
         eth_wallet_private_key: PrivateKeySigner,
-
-        /// TestVerifier contract address
-        #[clap(long, env)]
-        test_contract: Option<Address>,
 
         #[clap(long = "proof", short)]
         proof_path: PathBuf,
@@ -168,14 +141,12 @@ async fn main() -> Result<()> {
         }
         Command::Submit {
             eth_wallet_private_key,
-            test_contract,
             proof_path,
         } => {
             submit_proof(
                 eth_wallet_private_key,
                 args.eth_rpc_url,
-                Some(args.contract),
-                test_contract,
+                args.contract,
                 proof_path,
             )
             .await?
@@ -206,16 +177,13 @@ async fn build_input<'a>(
     let beacon_state = beacon_client.get_beacon_state(slot).await?;
     let execution_block_hash = beacon_client.get_eth1_block_hash_at_slot(slot + 1).await?;
 
-    let input = Input::build_initial(
+    let input = Input::build(
         &ETH_MAINNET_CHAIN_SPEC,
         &beacon_block_header.message,
         &beacon_state,
         &execution_block_hash,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
-        oracle_address,
-        BitVec::new(),
-        None,
         provider,
     )
     .await?;
@@ -246,8 +214,7 @@ async fn build_proof<'a>(input: Input<'a>, slot: u64) -> Result<Proof> {
 async fn submit_proof(
     eth_wallet_private_key: PrivateKeySigner,
     eth_rpc_url: Url,
-    contract: Option<Address>,
-    test_contract: Option<Address>,
+    contract: Address,
     in_path: PathBuf,
 ) -> Result<()> {
     let wallet = EthereumWallet::from(eth_wallet_private_key);
@@ -262,40 +229,47 @@ async fn submit_proof(
 
     let seal = encode_seal(&proof.receipt).context("encoding seal")?;
 
-    if let Some(test_contract) = test_contract {
-        let contract = ITestVerifier::new(test_contract, provider.clone());
-        let block_root = proof.receipt.journal.bytes[..32].try_into()?;
-        let report = TestReport::abi_decode(&proof.receipt.journal.bytes[32..])?;
-        let call_builder = contract.verify(block_root, report, seal.clone().into());
-        let pending_tx = call_builder.send().await?;
-        tracing::info!(
-            "test_verifier: Submitted proof with tx hash: {}",
-            pending_tx.tx_hash()
-        );
-        let tx_receipt = pending_tx.get_receipt().await?;
-        tracing::info!("Test_verifier: Tx included with receipt {:?}", tx_receipt);
-    }
-
-    if let Some(contract) = contract {
-        let contract = IOracleProofReceiver::new(contract, provider.clone());
-        // skip the first 32 bytes of the journal as that is the beacon block hash which is not part of the report
-        let report = Report::abi_decode(&proof.receipt.journal.bytes[32..])?;
-        let commitment = Commitment::abi_decode(&proof.receipt.journal.bytes[32 + 32..])?;
-        let call_builder = contract.update(
-            proof.slot.try_into()?,
-            report,
-            seal.clone().into(),
-            commitment,
-        );
-        let pending_tx = call_builder.send().await?;
-        tracing::info!("Submitted proof with tx hash: {}", pending_tx.tx_hash());
-        let tx_receipt = pending_tx.get_receipt().await?;
-        tracing::info!("Tx included with receipt {:?}", tx_receipt);
-    }
-
-    if let (None, None) = (contract, test_contract) {
-        eprintln!("No contract address provided, skipping submission");
-    }
+    let contract = IBoundlessMarketCallback::new(contract, provider.clone());
+    let call_builder = contract.handleProof(
+        B256::from_slice(bytemuck::cast_slice(&MAINNET_ID[..])),
+        proof.receipt.journal.bytes.into(),
+        seal.into(),
+    );
+    let pending_tx = call_builder.send().await?;
+    tracing::info!("Submitted proof with tx hash: {}", pending_tx.tx_hash());
+    let tx_receipt = pending_tx.get_receipt().await?;
+    tracing::info!("Tx included with receipt {:?}", tx_receipt);
 
     Ok(())
+}
+
+/// Encode the seal of the given receipt for use with EVM smart contract verifiers.
+///
+/// Appends the verifier selector, determined from the first 4 bytes of the verifier parameters
+/// including the Groth16 verification key and the control IDs that commit to the RISC Zero
+/// circuits.
+///
+/// copied here from risc0-ethereum-contracts crate as adding that crate creates a dependency hell with alloy
+fn encode_seal(receipt: &risc0_zkvm::Receipt) -> Result<Vec<u8>> {
+    let seal = match receipt.inner.clone() {
+        InnerReceipt::Fake(receipt) => {
+            let seal = receipt.claim.digest().as_bytes().to_vec();
+            let selector = &[0xFFu8; 4];
+            // Create a new vector with the capacity to hold both selector and seal
+            let mut selector_seal = Vec::with_capacity(selector.len() + seal.len());
+            selector_seal.extend_from_slice(selector);
+            selector_seal.extend_from_slice(&seal);
+            selector_seal
+        }
+        InnerReceipt::Groth16(receipt) => {
+            let selector = &receipt.verifier_parameters.as_bytes()[..4];
+            // Create a new vector with the capacity to hold both selector and seal
+            let mut selector_seal = Vec::with_capacity(selector.len() + receipt.seal.len());
+            selector_seal.extend_from_slice(selector);
+            selector_seal.extend_from_slice(receipt.seal.as_ref());
+            selector_seal
+        }
+        _ => bail!("Unsupported receipt type"),
+    };
+    Ok(seal)
 }
