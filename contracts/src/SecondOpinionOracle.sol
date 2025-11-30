@@ -66,7 +66,7 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IBoundlessMarketCallback {
     ///         but can also be called by other means provided the proof is valid.
     function handleProof(bytes32 imageId, bytes calldata journalBytes, bytes calldata seal) external {
         require(imageId == IMAGE_ID, "Invalid image ID");
-        // verifier.verify(seal, IMAGE_ID, sha256(journalBytes));
+        verifier.verify(seal, IMAGE_ID, sha256(journalBytes));
 
         Journal memory journal = abi.decode(journalBytes, (Journal));
         require(Steel.validateCommitment(journal.commitment), "Invalid Steel commitment");

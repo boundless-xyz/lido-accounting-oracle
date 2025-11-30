@@ -53,10 +53,6 @@ struct Args {
     #[clap(long, env)]
     eth_rpc_url: Url,
 
-    /// SecondOpinionOracle contract address
-    #[clap(long, env)]
-    contract: Address,
-
     #[clap(subcommand)]
     command: Command,
 }
@@ -89,6 +85,10 @@ enum Command {
         #[clap(long, env)]
         eth_wallet_private_key: PrivateKeySigner,
 
+        /// SecondOpinionOracle contract address
+        #[clap(long, env)]
+        contract: Address,
+
         #[clap(long = "proof", short)]
         proof_path: PathBuf,
     },
@@ -108,8 +108,7 @@ async fn main() -> Result<()> {
             out_path,
             beacon_rpc_url,
         } => {
-            let input =
-                build_input(args.slot, beacon_rpc_url, args.eth_rpc_url, args.contract).await?;
+            let input = build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?;
 
             // sanity check
             let report = generate_oracle_report(
@@ -133,8 +132,7 @@ async fn main() -> Result<()> {
             beacon_rpc_url,
             out_path,
         } => {
-            let input =
-                build_input(args.slot, beacon_rpc_url, args.eth_rpc_url, args.contract).await?;
+            let input = build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?;
 
             let proof = build_proof(input, args.slot).await?;
             write(out_path, bincode::serialize(&proof)?)?;
@@ -142,11 +140,12 @@ async fn main() -> Result<()> {
         Command::Submit {
             eth_wallet_private_key,
             proof_path,
+            contract,
         } => {
             submit_proof(
                 eth_wallet_private_key,
                 args.eth_rpc_url,
-                args.contract,
+                contract,
                 proof_path,
             )
             .await?
@@ -164,12 +163,7 @@ struct Proof {
 }
 
 #[tracing::instrument(skip(beacon_rpc_url, eth_rpc_url))]
-async fn build_input<'a>(
-    slot: u64,
-    beacon_rpc_url: Url,
-    eth_rpc_url: Url,
-    oracle_address: Address,
-) -> Result<Input<'a>> {
+async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Result<Input<'a>> {
     let beacon_client = BeaconClient::new_with_cache(beacon_rpc_url, "./beacon-cache")?;
     let provider = ProviderBuilder::new().connect_http(eth_rpc_url);
 

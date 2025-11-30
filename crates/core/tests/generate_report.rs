@@ -31,6 +31,8 @@ use lido_oracle_core::{
 };
 use oracle_builder::MAINNET_ID;
 use regex::Regex;
+use risc0_zkvm::sha::Digestible;
+use risc0_zkvm::ReceiptClaim;
 use test_utils::{TestStateBuilder, CAPELLA_FORK_SLOT};
 
 use alloy::{
@@ -147,12 +149,15 @@ async fn test_submit_report() -> anyhow::Result<()> {
     );
     assert_eq!(journal.report.clBalanceGwei, U256::from(10 * 9));
 
+    let journal_bytes = journal.abi_encode();
+    let seal = mock_prove(MAINNET_ID, journal_bytes.clone());
+
     // submit to the oracle contract
     let res = IBoundlessMarketCallback::new(addr, &provider)
         .handleProof(
             B256::from_slice(bytemuck::cast_slice(&MAINNET_ID[..])),
-            journal.abi_encode().into(),
-            Bytes::new(),
+            journal_bytes.into(),
+            seal,
         )
         .send()
         .await?
@@ -162,4 +167,22 @@ async fn test_submit_report() -> anyhow::Result<()> {
     println!("Oracle update tx: {:?}", res);
 
     Ok(())
+}
+
+// This is the selector for the test verifier that indicates a mock proof
+const SELECTOR: [u8; 4] = [0xff, 0xff, 0xff, 0xff];
+
+/// Construct a mock seal for the given image ID and journal that will verify with the MockVerifier contract
+fn mock_prove(image_id: [u32; 8], journal_bytes: Vec<u8>) -> Bytes {
+    let claim_digest = ReceiptClaim::ok(image_id, journal_bytes).digest();
+    mock_prove_claim(claim_digest.as_bytes().try_into().unwrap())
+}
+
+/// Construct a mock receipt for the given claim digest.
+/// The returned Receipt.seal is SELECTOR || claim_digest.
+fn mock_prove_claim(claim_digest: B256) -> Bytes {
+    let mut buf = Vec::with_capacity(SELECTOR.len() + 32);
+    buf.extend_from_slice(&SELECTOR);
+    buf.extend_from_slice(claim_digest.as_slice()); // B256 -> &[u8;32]
+    Bytes::from(buf)
 }

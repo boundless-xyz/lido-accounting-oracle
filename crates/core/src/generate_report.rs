@@ -77,18 +77,18 @@ pub fn generate_oracle_report(
     // Reserve the capacity for the membership bitvector to save cycles reallocating
     membership.reserve(n_validators.saturating_sub(membership.len() as u64) as usize);
 
-    println!(
+    tracing::debug!(
         "Computing validator membership for {} validators",
         n_validators
     );
     for validator_index in (membership.len() as u64)..n_validators {
-        println!("checking validator {}... ", validator_index);
+        tracing::debug!("checking validator {}... ", validator_index);
         let value = validators_values
             .next_assert_gindex(gindices::withdrawal_credentials_gindex(validator_index))?;
         if value == withdrawal_credentials {
             membership.push(true);
             num_lido_validators += 1;
-            println!("checking exit epoch for validator {}... ", validator_index);
+            tracing::debug!("checking exit epoch for validator {}... ", validator_index);
             let exit_epoch = validators_values
                 .next_assert_gindex(gindices::exit_epoch_gindex(validator_index))?;
             if u64_from_b256(&exit_epoch, 0) <= current_epoch {

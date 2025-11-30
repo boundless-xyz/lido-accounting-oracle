@@ -7,7 +7,7 @@ build:
 ## Proving tasks
 
 prove slot: build
-    ./target/release/cli --slot {{slot}} gen-input --out ./membership_proof_{{slot}}.proof initial
+    ./target/release/cli --slot {{slot}} prove --out ./membership_proof_{{slot}}.proof
 
 ## Submission to chain
 
