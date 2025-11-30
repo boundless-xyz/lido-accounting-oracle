@@ -1485,7 +1485,7 @@ checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 name = "beacon-state"
 version = "0.1.0"
 dependencies = [
- "ethereum-consensus 0.1.1 (git+https://github.com/ralexstokes/ethereum-consensus.git?rev=ade5ce6c4a19107c1059e5338d8f18855bd2d931)",
+ "ethereum-consensus 0.1.1 (git+https://github.com/boundless-xyz/ethereum-consensus.git?rev=1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef)",
  "serde",
  "serde_json",
  "ssz_rs",
@@ -1874,7 +1874,7 @@ dependencies = [
  "bitvec",
  "bytemuck",
  "clap",
- "ethereum-consensus 0.1.1 (git+https://github.com/ralexstokes/ethereum-consensus.git?rev=ade5ce6c4a19107c1059e5338d8f18855bd2d931)",
+ "ethereum-consensus 0.1.1 (git+https://github.com/boundless-xyz/ethereum-consensus.git?rev=1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef)",
  "http-cache-reqwest",
  "lido_oracle_core",
  "log",
@@ -2672,6 +2672,28 @@ dependencies = [
 [[package]]
 name = "ethereum-consensus"
 version = "0.1.1"
+source = "git+https://github.com/boundless-xyz/ethereum-consensus.git?rev=1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef#1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef"
+dependencies = [
+ "blst",
+ "bs58",
+ "c-kzg",
+ "enr",
+ "hex",
+ "integer-sqrt",
+ "multiaddr",
+ "multihash",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.8",
+ "ssz_rs",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "ethereum-consensus"
+version = "0.1.1"
 source = "git+https://github.com/ralexstokes/ethereum-consensus.git?rev=ade5ce6c4a19107c1059e5338d8f18855bd2d931#ade5ce6c4a19107c1059e5338d8f18855bd2d931"
 dependencies = [
  "blst",
@@ -3090,7 +3112,7 @@ name = "gindices"
 version = "0.1.0"
 dependencies = [
  "beacon-state",
- "ethereum-consensus 0.1.1 (git+https://github.com/ralexstokes/ethereum-consensus.git?rev=ade5ce6c4a19107c1059e5338d8f18855bd2d931)",
+ "ethereum-consensus 0.1.1 (git+https://github.com/boundless-xyz/ethereum-consensus.git?rev=1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef)",
  "prettyplease",
  "proc-macro2",
  "quote",
@@ -4044,7 +4066,7 @@ dependencies = [
  "beacon-state",
  "bitvec",
  "bytemuck",
- "ethereum-consensus 0.1.1 (git+https://github.com/ralexstokes/ethereum-consensus.git?rev=ade5ce6c4a19107c1059e5338d8f18855bd2d931)",
+ "ethereum-consensus 0.1.1 (git+https://github.com/boundless-xyz/ethereum-consensus.git?rev=1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef)",
  "gindices",
  "hex",
  "oracle_builder",
@@ -4740,7 +4762,7 @@ dependencies = [
  "anyhow",
  "bincode",
  "bitvec",
- "ethereum-consensus 0.1.1 (git+https://github.com/ralexstokes/ethereum-consensus.git?rev=ade5ce6c4a19107c1059e5338d8f18855bd2d931)",
+ "ethereum-consensus 0.1.1 (git+https://github.com/boundless-xyz/ethereum-consensus.git?rev=1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef)",
  "gindices",
  "hex",
  "lido_oracle_core",
@@ -7185,7 +7207,7 @@ dependencies = [
  "anyhow",
  "beacon-state",
  "bitvec",
- "ethereum-consensus 0.1.1 (git+https://github.com/ralexstokes/ethereum-consensus.git?rev=ade5ce6c4a19107c1059e5338d8f18855bd2d931)",
+ "ethereum-consensus 0.1.1 (git+https://github.com/boundless-xyz/ethereum-consensus.git?rev=1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef)",
  "gindices",
  "lido_oracle_core",
 ]

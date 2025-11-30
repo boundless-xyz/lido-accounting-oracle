@@ -33,7 +33,7 @@ risc0-zkp = { version = "3.0.2" }
 risc0-zkvm-platform = { version = "2.2.1", default-features = false }
 revm = { version = "23.1", default-features = false, features = ["std"] }
 
-ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus.git", rev = "ade5ce6c4a19107c1059e5338d8f18855bd2d931", default-features = false, features = ["serde"] }
+ethereum-consensus = { git = "https://github.com/boundless-xyz/ethereum-consensus.git", rev = "1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef", default-features = false, features = ["serde"] }
 ssz_rs = { git = "https://github.com/willemolding/ssz-rs", rev = "d939604c3693aadaff63dcacf9a810d8845fafef"}
 ssz-multiproofs = { git = "https://github.com/boundless-xyz/Signal-Ethereum", rev = "b0ff3ade8ae689431e355b97070bcdb4fefaa0cd" }
 
