@@ -1,0 +1,42 @@
+[package]
+name = "lido_oracle_core"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+builder = ["ssz-multiproofs/builder", "ssz-multiproofs/progress-bar", "dep:ssz_rs", "dep:ethereum-consensus", "dep:beacon-state", "risc0-steel/host"]
+
+[dependencies]
+ssz-multiproofs = { workspace = true }
+gindices = { workspace = true }
+
+risc0-steel = { workspace = true, default-features = false }
+serde.workspace = true
+alloy-primitives.workspace = true
+alloy-contract.workspace = true
+alloy-sol-types.workspace = true
+risc0-zkvm.workspace = true
+bitvec.workspace = true
+thiserror = "2.0.6"
+tracing.workspace = true
+bytemuck.workspace = true
+revm = { workspace = true }
+sha2 = { workspace = true}
+
+
+# Optional dependencies
+ssz_rs = { workspace = true, optional = true }
+ethereum-consensus = { workspace = true, optional = true }
+beacon-state = { workspace = true, optional = true}
+
+
+[dev-dependencies]
+alloy = { workspace = true, features = ["node-bindings"] }
+anyhow = { workspace = true }
+test-utils = { workspace = true }
+oracle_builder = { workspace = true }
+tokio = { workspace = true }
+tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
+hex = { workspace = true }
+regex = "1.11.2"

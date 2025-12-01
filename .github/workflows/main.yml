@@ -48,8 +48,8 @@ jobs:
         working-directory: guests/membership
         run: cargo build
   
-      - name: build rust balance_and_exits guest
-        working-directory: guests/balance_and_exits
+      - name: build rust oracle guest
+        working-directory: guests/oracle
         run: cargo build
 
       - name: build solidity contracts
@@ -90,8 +90,8 @@ jobs:
         working-directory: guests/membership/guest
         run: cargo fmt --all --check
 
-      - name: lint balance_and_exits guest rust code
-        working-directory: guests/balance_and_exits/guest
+      - name: lint oracle guest rust code
+        working-directory: guests/oracle/guest
         run: cargo fmt --all --check
 
       - name: check solidity code formatting

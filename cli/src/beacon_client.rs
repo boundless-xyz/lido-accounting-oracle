@@ -76,6 +76,7 @@ pub struct BeaconClient {
 
 impl BeaconClient {
     /// Creates a new beacon endpoint API client.
+    #[allow(dead_code)]
     pub fn new<U: IntoUrl>(endpoint: U) -> Result<Self, Error> {
         let client = reqwest::Client::new();
         Ok(Self {

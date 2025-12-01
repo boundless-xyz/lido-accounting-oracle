@@ -17,23 +17,20 @@
 pragma solidity ^0.8.20;
 
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
-import {Steel, Beacon} from "risc0/steel/Steel.sol";
-import {ISecondOpinionOracle} from "./ISecondOpinionOracle.sol";
+import {Steel} from "risc0/steel/Steel.sol";
+import {Journal, ISecondOpinionOracle} from "./ISecondOpinionOracle.sol";
 import {ImageID} from "./ImageID.sol"; // auto-generated contract after running `cargo build`.
-import {Report, IOracleProofReceiver} from "./IOracleProofReceiver.sol";
+import {IBoundlessMarketCallback} from "boundless/IBoundlessMarketCallback.sol";
+
+struct Report {
+    uint256 clBalanceGwei;
+    uint256 withdrawalVaultBalanceWei;
+    uint256 totalDepositedValidators;
+    uint256 totalExitedValidators;
+}
 
 /// @title LIP-23 Compatible Oracle implemented using RISC Zero
-contract SecondOpinionOracle is ISecondOpinionOracle, IOracleProofReceiver {
-    /// @notice The journal written by the RISC Zero verifier.
-    struct Journal {
-        uint256 clBalanceGwei;
-        uint256 withdrawalVaultBalanceWei;
-        uint256 totalDepositedValidators;
-        uint256 totalExitedValidators;
-        bytes32 blockRoot;
-        Steel.Commitment commitment;
-    }
-
+contract SecondOpinionOracle is ISecondOpinionOracle, IBoundlessMarketCallback {
     /// @notice RISC Zero verifier contract address.
     IRiscZeroVerifier public immutable verifier;
 
@@ -41,7 +38,7 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IOracleProofReceiver {
     uint256 public immutable genesis_block_timestamp;
 
     /// @notice Image ID of the only zkVM guest to accept verification from.
-    bytes32 public constant imageId = ImageID.MAINNET_ID;
+    bytes32 public constant IMAGE_ID = ImageID.MAINNET_ID;
 
     /// @notice Seconds per slot
     uint256 public constant SECONDS_PER_SLOT = 12;
@@ -50,7 +47,14 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IOracleProofReceiver {
     mapping(uint256 => Report) public reports;
 
     /// @notice Emitted when a new report is stored.
-    event ReportUpdated(uint256 refSlot, Report r);
+    event ReportUpdated(
+        uint256 refSlot,
+        bytes32 membershipCommitment,
+        uint256 clBalanceGwei,
+        uint256 withdrawalVaultBalanceWei,
+        uint256 totalDepositedValidators,
+        uint256 totalExitedValidators
+    );
 
     /// @notice Initialize the contract, binding it to a specified RISC Zero verifier.
     constructor(IRiscZeroVerifier _verifier, uint256 _genesis_block_timestamp) {
@@ -58,28 +62,30 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IOracleProofReceiver {
         genesis_block_timestamp = _genesis_block_timestamp;
     }
 
-    /// @notice Set an oracle report for a given slot by verifying the ZK proof
-    function update(uint256 refSlot, Report calldata r, bytes calldata seal, Steel.Commitment calldata commitment)
-        external
-    {
-        require(Steel.validateCommitment(commitment), "Invalid commitment");
+    /// @notice Update oracle report. This matches the callback signature expected by Boundless Market.
+    ///         but can also be called by other means provided the proof is valid.
+    function handleProof(bytes32 imageId, bytes calldata journalBytes, bytes calldata seal) external {
+        require(imageId == IMAGE_ID, "Invalid image ID");
+        verifier.verify(seal, IMAGE_ID, sha256(journalBytes));
 
-        bytes32 blockRoot = Beacon.parentBlockRoot(_timestampAtSlot(refSlot + 1));
+        Journal memory journal = abi.decode(journalBytes, (Journal));
+        require(Steel.validateCommitment(journal.commitment), "Invalid Steel commitment");
 
-        Journal memory journal = Journal({
-            clBalanceGwei: r.clBalanceGwei,
-            withdrawalVaultBalanceWei: r.withdrawalVaultBalanceWei,
-            totalDepositedValidators: r.totalDepositedValidators,
-            totalExitedValidators: r.totalExitedValidators,
-            blockRoot: blockRoot,
-            commitment: commitment
+        reports[journal.refSlot] = Report({
+            clBalanceGwei: journal.report.clBalanceGwei,
+            withdrawalVaultBalanceWei: journal.report.withdrawalVaultBalanceWei,
+            totalDepositedValidators: journal.report.totalDepositedValidators,
+            totalExitedValidators: journal.report.totalExitedValidators
         });
 
-        verifier.verify(seal, imageId, sha256(abi.encode(journal)));
-
-        // report is now considered valid for the given slot and can be stored
-        reports[refSlot] = r;
-        emit ReportUpdated(refSlot, r);
+        emit ReportUpdated(
+            journal.refSlot,
+            journal.membershipCommitment,
+            journal.report.clBalanceGwei,
+            journal.report.withdrawalVaultBalanceWei,
+            journal.report.totalDepositedValidators,
+            journal.report.totalExitedValidators
+        );
     }
 
     /// @notice Returns the number stored.

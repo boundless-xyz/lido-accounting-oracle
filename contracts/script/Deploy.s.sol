@@ -24,19 +24,8 @@ import {RiscZeroGroth16Verifier} from "risc0/groth16/RiscZeroGroth16Verifier.sol
 import {ControlID} from "risc0/groth16/ControlID.sol";
 
 import {SecondOpinionOracle} from "../src/SecondOpinionOracle.sol";
-import {TestVerifier} from "../src/TestVerifier.sol";
 
-/// @notice Deployment script for the RISC Zero starter project.
-/// @dev Use the following environment variable to control the deployment:
-///     * Set one of these two environment variables to control the deployment wallet:
-///         * ETH_WALLET_PRIVATE_KEY private key of the wallet account.
-///         * ETH_WALLET_ADDRESS address of the wallet account.
-///
-/// See the Foundry documentation for more information about Solidity scripts,
-/// including information about wallet options.
-///
-/// https://book.getfoundry.sh/tutorials/solidity-scripting
-/// https://book.getfoundry.sh/reference/forge/forge-script
+/// @notice Deployment script for the Lido oracle
 contract Deploy is Script, RiscZeroCheats {
     // Path to deployment config file, relative to the project root.
     string constant CONFIG_FILE = "script/config.toml";
@@ -102,9 +91,6 @@ contract Deploy is Script, RiscZeroCheats {
 
         SecondOpinionOracle oracle = new SecondOpinionOracle(verifier, genesisTimestamp);
         console2.log("Deployed SecondOpinionOracle to", address(oracle));
-
-        TestVerifier testVerifier = new TestVerifier(verifier);
-        console2.log("Deployed TestVerifier to", address(testVerifier));
 
         vm.stopBroadcast();
     }

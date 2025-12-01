@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
-guest-io = { workspace = true, features = ["builder"] }
+lido_oracle_core = { workspace = true, features = ["builder"] }
 gindices.workspace = true
 bitvec = { workspace = true }
 ethereum-consensus = { workspace = true }

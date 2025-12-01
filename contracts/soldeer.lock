@@ -6,6 +6,12 @@ checksum = "fd3d1ea561cb27897008aee18ada6e85f248eb161c86e4435272fc2b5777574f"
 integrity = "cb6cf6e878f2943b2291d5636a9d72ac51d43d8135896ceb6cf88d36c386f212"
 
 [[dependencies]]
+name = "boundless"
+version = "1.1.1"
+git = "https://github.com/boundless-xyz/boundless"
+rev = "b12f88ae075aa1aa2862606ee33e151c158e42f9"
+
+[[dependencies]]
 name = "forge-std"
 version = "1.9.5"
 url = "https://soldeer-revisions.s3.amazonaws.com/forge-std/1_9_5_21-12-2024_15:04:05_forge-std-1.9.zip"

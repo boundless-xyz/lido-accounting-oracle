@@ -8,18 +8,17 @@ default = []
 
 [dependencies]
 ssz-multiproofs.workspace = true
-guest-io = { workspace = true, features = ["builder"] }
-membership_builder.workspace = true
-balance_and_exits_builder.workspace = true
+lido_oracle_core = { workspace = true, features = ["builder"] }
+oracle_builder.workspace = true
 beacon-state = { workspace = true }
 
 alloy = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
+bitvec = { workspace = true }
 clap = { version = "4.0", features = ["derive", "env"] }
 log = { workspace = true }
-risc0-ethereum-contracts = { workspace = true }
 risc0-steel = { workspace = true, features = ["host"] }
 risc0-zkvm = { workspace = true, features = ["client", "unstable", "prove"] }
 tokio = { version = "1.35", features = ["full"] }
@@ -31,7 +30,6 @@ reqwest = "0.12.9"
 serde_json = { workspace = true }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-reqwest-cache = "0.1.3"
 reqwest-middleware = "0.4.0"
 http-cache-reqwest = "0.15.0"
 bytemuck.workspace = true

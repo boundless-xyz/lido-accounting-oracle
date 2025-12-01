@@ -1,8 +1,7 @@
 {
     "rust-analyzer.linkedProjects": [
         "./Cargo.toml",
-        "./guests/membership/guest/Cargo.toml",
-        "./guests/balance_and_exits/guest/Cargo.toml",
+        "./zkvm/oracle/guest/Cargo.toml",
     ],
     "rust-analyzer.check.extraEnv": {
         "RISC0_SKIP_BUILD": "1",
