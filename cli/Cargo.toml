@@ -30,7 +30,6 @@ reqwest = "0.12.9"
 serde_json = { workspace = true }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-reqwest-cache = "0.1.3"
 reqwest-middleware = "0.4.0"
 http-cache-reqwest = "0.15.0"
 bytemuck.workspace = true

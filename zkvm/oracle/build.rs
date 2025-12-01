@@ -26,24 +26,10 @@ const SOLIDITY_ELF_PATH: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/../../contracts/tests/Elf.sol");
 
 fn main() {
-    let mut guest_features = Vec::new();
-
-    if env::var("CARGO_FEATURE_SKIP_VERIFY").is_ok() {
-        guest_features.push("skip-verify".to_string());
-    }
-
-    println!(
-        "cargo:warning=building guest with features: {:?}",
-        guest_features
-    );
-
     // Generate Rust source files for the methods crate.
     let guests = embed_methods_with_options(HashMap::from([(
         "oracle",
-        GuestOptionsBuilder::default()
-            .features(guest_features)
-            .build()
-            .unwrap(),
+        GuestOptionsBuilder::default().build().unwrap(),
     )]));
 
     // Generate Solidity source files for use with Forge.

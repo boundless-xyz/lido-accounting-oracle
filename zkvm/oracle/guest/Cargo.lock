@@ -3085,16 +3085,9 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "bincode",
- "bitvec",
- "gindices",
  "lido_oracle_core",
  "risc0-steel",
- "risc0-zkp",
  "risc0-zkvm",
- "risc0-zkvm-platform",
- "serde",
- "ssz-multiproofs",
- "tracing",
 ]
 
 [[package]]

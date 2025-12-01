@@ -3,10 +3,6 @@ name = "oracle_builder"
 version = { workspace = true }
 edition = { workspace = true }
 
-[features]
-sepolia = []
-skip-verify = []
-
 [package.metadata.risc0]
 methods = ["guest"]
 
