@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod eip4788;
 mod error;
 mod generate_report;
 pub mod input;

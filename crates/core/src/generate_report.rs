@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::eip4788::{self, Eip4788Call};
 use crate::input::Input;
 use crate::soltypes::{Journal, Report};
 use crate::{error, u64_from_b256, Node};
 use alloy_primitives::{Address, U256};
+use alloy_sol_types::SolCall;
 use bitvec::prelude::*;
 use bitvec::vec::BitVec;
 use risc0_steel::ethereum::EthChainSpec;
-use risc0_steel::Account;
+use risc0_steel::{Account, Contract};
 use sha2::{Digest, Sha256};
 use ssz_multiproofs::ValueIterator;
 
@@ -32,17 +34,23 @@ pub fn generate_oracle_report(
     withdrawal_vault_address: Address,
 ) -> Result<Journal> {
     let Input {
-        block_root,
+        header_timestamp,
         block_multiproof,
         state_multiproof,
         validators_multiproof,
         evm_input,
     } = input;
+    let evm_env = evm_input.into_env(spec);
 
     // obtain the withdrawal vault balance from the EVM input
-    let evm_env = evm_input.into_env(spec);
     let account = Account::new(withdrawal_vault_address, &evm_env);
     let withdrawal_vault_balance: U256 = account.info().balance;
+
+    // Obtain the block_root using EIP-4788 call
+    // indexed by header_timestamp
+    let eip4788_contract = Contract::new(eip4788::ADDRESS, &evm_env);
+    let call = Eip4788Call::new((U256::from(header_timestamp),));
+    let block_root = eip4788_contract.call_builder(&call).call();
 
     tracing::info!("Verifying block multiproof");
     block_multiproof.verify(&block_root)?;

@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use alloy_primitives::B256;
 #[cfg(feature = "builder")]
 use risc0_steel::alloy::providers::Provider;
 #[cfg(feature = "builder")]
@@ -23,20 +22,27 @@ use ssz_multiproofs::Multiproof;
 #[cfg(feature = "builder")]
 use {
     crate::build_with_versioned_state,
+    crate::eip4788::{self, Eip4788Call},
     crate::Result,
-    alloy_primitives::Address,
+    alloy_primitives::{Address, B256},
+    alloy_sol_types::SolCall,
     beacon_state::mainnet::BeaconState,
     bitvec::prelude::*,
     ethereum_consensus::phase0::BeaconBlockHeader,
-    risc0_steel::{ethereum::EthEvmEnv, Account},
+    risc0_steel::{ethereum::EthEvmEnv, Account, Contract},
     ssz_multiproofs::MultiproofBuilder,
     ssz_rs::prelude::*,
 };
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Input<'a> {
-    /// Block that the proof is rooted in
-    pub block_root: B256,
+    /// Steel EvmInput, used for reading the withdrawal vault balance and block_root
+    /// This is the root of all trusts in the oracle
+    pub evm_input: EthEvmInput,
+
+    /// Timestamp that can be used to retrieve the block root from EIP-4788
+    /// This block root will be used to verify the block multiproof
+    pub header_timestamp: u64,
 
     /// Merkle SSZ proof rooted in the beacon block
     #[serde(borrow)]
@@ -49,9 +55,6 @@ pub struct Input<'a> {
     /// Used fields of the active validators
     #[serde(borrow)]
     pub validators_multiproof: Multiproof<'a>,
-
-    /// Steel EvmInput, used for reading the withdrawal vault balance
-    pub evm_input: EthEvmInput,
 }
 
 #[cfg(feature = "builder")]
@@ -69,7 +72,7 @@ impl<'a> Input<'a> {
     where
         P: Provider + 'static + Clone,
     {
-        // build the Steel input for reading the balance
+        // build the Steel input for reading the balance and block root
         let mut env = EthEvmEnv::builder()
             .provider(provider.clone())
             .chain_spec(&spec)
@@ -77,14 +80,28 @@ impl<'a> Input<'a> {
             .build()
             .await
             .unwrap();
-        let _preflight_info = {
+
+        let header_timestamp = block_header.slot * 12 + 1_700_000_000;
+
+        let withdrawal_vault = {
             let account = Account::preflight(withdrawal_vault_address, &mut env);
             account.bytecode(true).info().await.unwrap()
         };
 
-        tracing::info!("withdrawal_vault balance: {}", _preflight_info.balance);
+        let block_root = {
+            let call = Eip4788Call::new((U256::from(header_timestamp),));
+            let mut contract = Contract::preflight(eip4788::ADDRESS, &mut env);
+            contract.call_builder(&call).call().await.unwrap()
+        };
 
-        let block_root = block_header.hash_tree_root()?;
+        tracing::info!("withdrawal_vault balance: {}", withdrawal_vault.balance);
+
+        // sanity check that the computed block root matches the retrieved root
+        assert_eq!(
+            block_header.hash_tree_root()?,
+            block_root,
+            "Computed block root does not match EIP-4788 retrieved root"
+        );
 
         let membership = beacon_state
             .validators()
@@ -121,7 +138,7 @@ impl<'a> Input<'a> {
             .build(beacon_state.validators())?;
 
         Ok(Self {
-            block_root,
+            header_timestamp,
             block_multiproof,
             state_multiproof,
             validators_multiproof,
