@@ -169,7 +169,7 @@ async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Re
 
     let beacon_block_header = beacon_client.get_block_header(slot).await?;
     let beacon_state = beacon_client.get_beacon_state(slot).await?;
-    let execution_block_hash = beacon_client.get_eth1_block_hash_at_slot(slot + 1).await?;
+    let execution_block_hash = beacon_client.get_eth1_block_hash_at_slot(slot).await?;
 
     let input = Input::build(
         &ETH_MAINNET_CHAIN_SPEC,

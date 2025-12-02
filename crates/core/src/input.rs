@@ -81,12 +81,33 @@ impl<'a> Input<'a> {
             .await
             .unwrap();
 
-        let header_timestamp = block_header.slot * 12 + 1_700_000_000;
+        let header_timestamp = env.header().timestamp;
+
+        println!(
+            "EL block parent beacon block root {:?}",
+            env.header().parent_beacon_block_root
+        );
 
         let withdrawal_vault = {
             let account = Account::preflight(withdrawal_vault_address, &mut env);
             account.bytecode(true).info().await.unwrap()
         };
+
+        println!("Computed block root {}", block_header.hash_tree_root()?);
+
+        for i in 0..10 {
+            let lookup_timestamp = header_timestamp - i * 12;
+
+            let block_root = {
+                let call = Eip4788Call::new((U256::from(lookup_timestamp),));
+                let mut contract = Contract::preflight(eip4788::ADDRESS, &mut env);
+                contract.call_builder(&call).call().await.unwrap()
+            };
+            println!(
+                "EIP-4788 block at timestamp {}: {}",
+                lookup_timestamp, block_root
+            );
+        }
 
         let block_root = {
             let call = Eip4788Call::new((U256::from(header_timestamp),));
