@@ -28,7 +28,7 @@ use alloy_primitives::{utils::parse_ether, Address};
 use alloy_sol_types::SolValue;
 use ethereum_consensus::phase0::presets::mainnet::BeaconBlockHeader;
 use ethereum_consensus::ssz::prelude::*;
-use lido_oracle_core::eip4788::{ADDRESS as BLOCK_ROOTS_ADDRESS, CODE, HISTORY_BUFFER_LENGTH};
+use lido_oracle_core::eip4788::{ADDRESS as BLOCK_ROOTS_ADDRESS, CODE};
 use lido_oracle_core::soltypes::IBoundlessMarketCallback;
 use lido_oracle_core::{
     generate_oracle_report,

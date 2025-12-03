@@ -22,7 +22,6 @@ use bitvec::prelude::*;
 use bitvec::vec::BitVec;
 use risc0_steel::ethereum::EthChainSpec;
 use risc0_steel::{Account, Contract};
-use sha2::{Digest, Sha256};
 use ssz_multiproofs::ValueIterator;
 
 use crate::error::Result;
@@ -147,19 +146,4 @@ fn accumulate_balances<'a, I: Iterator<Item = (u64, &'a Node)>>(
         cl_balance += balance;
     }
     cl_balance
-}
-
-/// Hash a bitvec in a way that includes the bitlength. Just hashing the underlying bytes is not sufficient
-/// as any bits above the bitlength would be malleable
-fn hash_bitvec(bv: &BitVec<u32>) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-
-    // Hash bit length first
-    hasher.update(&bv.len().to_le_bytes());
-
-    // Access underlying storage directly without cloning
-    let raw_slice = bv.as_raw_slice();
-    hasher.update(bytemuck::cast_slice(raw_slice));
-
-    hasher.finalize().into()
 }
