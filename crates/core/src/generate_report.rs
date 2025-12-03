@@ -121,7 +121,6 @@ pub fn generate_oracle_report(
         },
         blockRoot: block_root,
         commitment: evm_env.into_commitment().into(),
-        membershipCommitment: hash_bitvec(&membership).into(),
     };
 
     Ok(journal)

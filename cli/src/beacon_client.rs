@@ -127,7 +127,7 @@ impl BeaconClient {
     pub async fn get_eth1_block_hash_at_slot(&self, block_id: impl Display) -> Result<B256, Error> {
         let path = format!("eth/v2/beacon/blocks/{block_id}");
         let result: serde_json::Value = self.http_get(&path).await?;
-        let hash_str = result["data"]["message"]["body"]["eth1_data"]["block_hash"]
+        let hash_str = result["data"]["message"]["body"]["execution_payload"]["block_hash"]
             .as_str()
             .unwrap();
         Ok(B256::from_hex(&hash_str.trim_start_matches("0x")).unwrap())

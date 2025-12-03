@@ -15,13 +15,19 @@
 use std::process::Command;
 use std::str::FromStr;
 
+use alloy::eips::BlockId;
 use alloy::hex::FromHex;
 use alloy::signers::local::PrivateKeySigner;
+use alloy::{
+    node_bindings::{Anvil, AnvilInstance},
+    providers::{ext::AnvilApi, Provider, ProviderBuilder},
+};
 use alloy_primitives::{utils::parse_ether, Address};
 use alloy_primitives::{Bytes, B256, U256};
 use alloy_sol_types::SolValue;
 use ethereum_consensus::phase0::presets::mainnet::BeaconBlockHeader;
 use ethereum_consensus::ssz::prelude::*;
+use lido_oracle_core::eip4788::{ADDRESS, CODE, HISTORY_BUFFER_LENGTH};
 use lido_oracle_core::soltypes::IBoundlessMarketCallback;
 use lido_oracle_core::{
     generate_oracle_report,
@@ -34,11 +40,6 @@ use regex::Regex;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::ReceiptClaim;
 use test_utils::{TestStateBuilder, CAPELLA_FORK_SLOT};
-
-use alloy::{
-    node_bindings::{Anvil, AnvilInstance},
-    providers::{ext::AnvilApi, Provider, ProviderBuilder},
-};
 
 /// Returns an Anvil provider the oracle contracts deployed and the WITHDRAWAL_VAULT_ADDRESS balance set to 33 ether
 async fn test_provider() -> (AnvilInstance, impl Provider + Clone, Address) {
@@ -58,6 +59,12 @@ async fn test_provider() -> (AnvilInstance, impl Provider + Clone, Address) {
         .connect_http(rpc_url.parse().unwrap());
     let node_info = provider.anvil_node_info().await.unwrap();
     println!("Anvil started: {:?}", node_info);
+
+    // Deploy the EIP-4788 contract code at the expected address
+    provider
+        .anvil_set_code(ADDRESS, Bytes::copy_from_slice(&CODE))
+        .await
+        .unwrap();
 
     // Set the balance of the WITHDRAWAL_VAULT_ADDRESS to 33 ether
     provider
@@ -118,18 +125,42 @@ async fn test_submit_report() -> anyhow::Result<()> {
     block_header.slot = s.slot();
     block_header.state_root = s.hash_tree_root().unwrap();
 
-    let execution_block_root = provider
-        .get_block_by_number(1.into())
+    let execution_block_header = provider
+        .get_block(BlockId::latest())
         .await?
         .unwrap()
-        .into_header()
-        .hash;
+        .into_header();
+
+    // Store this block in the EIP-4788 contract storage
+    let header_timestamp = execution_block_header.timestamp;
+    let block_root = block_header.hash_tree_root().unwrap();
+
+    let index = header_timestamp % HISTORY_BUFFER_LENGTH;
+    let timestamp_slot = U256::from(index);
+    let root_slot = U256::from(index + HISTORY_BUFFER_LENGTH);
+
+    provider
+        .anvil_set_storage_at(
+            ADDRESS,
+            timestamp_slot,
+            B256::from(U256::from(header_timestamp)),
+        )
+        .await
+        .unwrap();
+
+    provider
+        .anvil_set_storage_at(ADDRESS, root_slot, block_root)
+        .await
+        .unwrap();
+
+    // progress the block so the state is committed in the header
+    provider.anvil_mine(Some(1), Some(1)).await.unwrap();
 
     let input = Input::build(
         &ANVIL_CHAIN_SPEC,
         &block_header,
         &s,
-        &execution_block_root,
+        &execution_block_header.hash,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
         provider.clone(),

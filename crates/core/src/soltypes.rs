@@ -28,7 +28,6 @@ sol! {
         Report report;
         bytes32 blockRoot;
         Commitment commitment;
-        bytes32 membershipCommitment;
     }
 
     #[derive(Debug)]

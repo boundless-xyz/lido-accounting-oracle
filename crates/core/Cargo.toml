@@ -23,7 +23,7 @@ tracing.workspace = true
 bytemuck.workspace = true
 revm = { workspace = true }
 sha2 = { workspace = true}
-
+hex-literal = "1.1.0"
 
 # Optional dependencies
 ssz_rs = { workspace = true, optional = true }
@@ -40,4 +40,3 @@ tokio = { workspace = true }
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 hex = { workspace = true }
 regex = "1.11.2"
-hex-literal = "1.1.0"
