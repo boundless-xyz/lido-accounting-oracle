@@ -40,3 +40,4 @@ tokio = { workspace = true }
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 hex = { workspace = true }
 regex = "1.11.2"
+serde_json.workspace = true

@@ -3927,6 +3927,7 @@ dependencies = [
  "risc0-steel",
  "risc0-zkvm",
  "serde",
+ "serde_json",
  "sha2 0.10.8",
  "ssz-multiproofs",
  "ssz_rs",
