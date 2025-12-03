@@ -29,6 +29,8 @@ hex-literal = "1.1.0"
 ssz_rs = { workspace = true, optional = true }
 ethereum-consensus = { workspace = true, optional = true }
 beacon-state = { workspace = true, optional = true}
+async-trait = "0.1.89"
+anyhow.workspace = true
 
 
 [dev-dependencies]

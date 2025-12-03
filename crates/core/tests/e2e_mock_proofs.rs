@@ -38,6 +38,7 @@ use lido_oracle_core::{
 };
 use oracle_builder::MAINNET_ID;
 use regex::Regex;
+use risc0_steel::ethereum::EthEvmEnv;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::ReceiptClaim;
 use serde_json::json;
@@ -139,14 +140,20 @@ async fn test_submit_report() -> anyhow::Result<()> {
         .unwrap()
         .into_header();
 
-    let input = Input::build(
-        &ANVIL_CHAIN_SPEC,
+    let env = EthEvmEnv::builder()
+        .provider(provider.clone())
+        .chain_spec(&ANVIL_CHAIN_SPEC)
+        .block_hash(B256::from_slice(execution_block_header.hash.as_slice()))
+        .build()
+        .await
+        .unwrap();
+
+    let input = Input::build_blockhash_commit(
+        env,
         &block_header,
         &s,
-        &execution_block_header.hash,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
-        provider.clone(),
     )
     .await?;
 

@@ -13,12 +13,9 @@
 // limitations under the License.
 
 #[cfg(feature = "builder")]
-use risc0_steel::alloy::providers::Provider;
-#[cfg(feature = "builder")]
-use risc0_steel::ethereum::EthChainSpec;
+use risc0_steel::beacon::BeaconCommit;
 use risc0_steel::ethereum::EthEvmInput;
 use ssz_multiproofs::Multiproof;
-
 #[cfg(feature = "builder")]
 use {
     crate::build_with_versioned_state,
@@ -29,7 +26,13 @@ use {
     beacon_state::mainnet::BeaconState,
     bitvec::prelude::*,
     ethereum_consensus::phase0::BeaconBlockHeader,
-    risc0_steel::{ethereum::EthEvmEnv, Account, Contract},
+    risc0_steel::{
+        alloy::{network::Ethereum, providers::Provider},
+        ethereum::EthEvmEnv,
+        host::db::{ProofDb, ProviderDb},
+        host::HostCommit,
+        Account, Contract,
+    },
     ssz_multiproofs::MultiproofBuilder,
     ssz_rs::prelude::*,
 };
@@ -60,27 +63,82 @@ pub struct Input<'a> {
 #[cfg(feature = "builder")]
 impl<'a> Input<'a> {
     /// Build an oracle proof for all validators in the beacon state
-    pub async fn build<P>(
-        spec: &EthChainSpec,
+    pub async fn build_blockhash_commit<P>(
+        env: EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<()>>,
         block_header: &BeaconBlockHeader,
         beacon_state: &BeaconState,
-        execution_block_hash: &B256,
         withdrawal_credentials: &B256,
         withdrawal_vault_address: Address,
-        provider: P,
     ) -> Result<Self>
     where
         P: Provider + 'static + Clone,
     {
-        // build the Steel input for reading the balance and block root
-        let mut env = EthEvmEnv::builder()
-            .provider(provider.clone())
-            .chain_spec(&spec)
-            .block_hash(*execution_block_hash)
-            .build()
-            .await
-            .unwrap();
+        let (header_timestamp, block_multiproof, state_multiproof, validators_multiproof, env) =
+            Self::build(
+                env,
+                block_header,
+                beacon_state,
+                withdrawal_credentials,
+                withdrawal_vault_address,
+            )
+            .await?;
 
+        Ok(Self {
+            header_timestamp,
+            block_multiproof,
+            state_multiproof,
+            validators_multiproof,
+            evm_input: env.into_input().await.unwrap(),
+        })
+    }
+
+    /// Build an oracle proof for all validators in the beacon state
+    pub async fn build_beacon_commit<P>(
+        env: EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<BeaconCommit>>,
+        block_header: &BeaconBlockHeader,
+        beacon_state: &BeaconState,
+        withdrawal_credentials: &B256,
+        withdrawal_vault_address: Address,
+    ) -> Result<Self>
+    where
+        P: Provider + 'static + Clone,
+    {
+        let (header_timestamp, block_multiproof, state_multiproof, validators_multiproof, env) =
+            Self::build(
+                env,
+                block_header,
+                beacon_state,
+                withdrawal_credentials,
+                withdrawal_vault_address,
+            )
+            .await?;
+
+        Ok(Self {
+            header_timestamp,
+            block_multiproof,
+            state_multiproof,
+            validators_multiproof,
+            evm_input: env.into_input().await.unwrap(),
+        })
+    }
+
+    /// Build an oracle proof for all validators in the beacon state
+    pub async fn build<P, C>(
+        mut env: EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<C>>,
+        block_header: &BeaconBlockHeader,
+        beacon_state: &BeaconState,
+        withdrawal_credentials: &B256,
+        withdrawal_vault_address: Address,
+    ) -> Result<(
+        u64,
+        Multiproof<'a>,
+        Multiproof<'a>,
+        Multiproof<'a>,
+        EthEvmEnv<ProofDb<ProviderDb<Ethereum, P>>, HostCommit<C>>,
+    )>
+    where
+        P: Provider + 'static + Clone,
+    {
         let header_timestamp = env.header().timestamp;
 
         let withdrawal_vault = {
@@ -136,12 +194,12 @@ impl<'a> Input<'a> {
             }))
             .build(beacon_state.validators())?;
 
-        Ok(Self {
+        Ok((
             header_timestamp,
             block_multiproof,
             state_multiproof,
             validators_multiproof,
-            evm_input: env.into_input().await.unwrap(),
-        })
+            env,
+        ))
     }
 }

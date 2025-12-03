@@ -2728,6 +2728,8 @@ dependencies = [
  "alloy-contract",
  "alloy-primitives",
  "alloy-sol-types",
+ "anyhow",
+ "async-trait",
  "bitvec",
  "bytemuck",
  "gindices",

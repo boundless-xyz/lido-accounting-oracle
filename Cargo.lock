@@ -3914,6 +3914,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "async-trait",
  "beacon-state",
  "bitvec",
  "bytemuck",
