@@ -19,8 +19,9 @@ pragma solidity ^0.8.20;
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {Steel} from "risc0/steel/Steel.sol";
 import {Journal, ISecondOpinionOracle} from "./ISecondOpinionOracle.sol";
-import {ImageID} from "./ImageID.sol"; // auto-generated contract after running `cargo build`.
 import {IBoundlessMarketCallback} from "boundless/IBoundlessMarketCallback.sol";
+import {UUPSUpgradeable} from "@openzeppelin-contracts-upgradeable/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable/contracts/access/OwnableUpgradeable.sol";
 
 struct Report {
     uint256 clBalanceGwei;
@@ -30,15 +31,15 @@ struct Report {
 }
 
 /// @title LIP-23 Compatible Oracle implemented using RISC Zero
-contract SecondOpinionOracle is ISecondOpinionOracle, IBoundlessMarketCallback {
+contract SecondOpinionOracle is ISecondOpinionOracle, IBoundlessMarketCallback, OwnableUpgradeable, UUPSUpgradeable {
     /// @notice RISC Zero verifier contract address.
-    IRiscZeroVerifier public immutable verifier;
-
-    /// @notice The timestamp of the genesis block.
-    uint256 public immutable genesis_block_timestamp;
+    IRiscZeroVerifier public immutable VERIFIER;
 
     /// @notice Image ID of the only zkVM guest to accept verification from.
-    bytes32 public constant IMAGE_ID = ImageID.MAINNET_ID;
+    bytes32 public immutable IMAGE_ID;
+
+    /// @notice helper reference to the URL hosting the zkVM image
+    string public imageUrl;
 
     /// @notice Seconds per slot
     uint256 public constant SECONDS_PER_SLOT = 12;
@@ -56,16 +57,24 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IBoundlessMarketCallback {
     );
 
     /// @notice Initialize the contract, binding it to a specified RISC Zero verifier.
-    constructor(IRiscZeroVerifier _verifier, uint256 _genesis_block_timestamp) {
-        verifier = _verifier;
-        genesis_block_timestamp = _genesis_block_timestamp;
+    constructor(IRiscZeroVerifier _verifier, bytes32 _imageId) {
+        VERIFIER = _verifier;
+        IMAGE_ID = _imageId;
+
+        _disableInitializers();
+    }
+
+    function initialize(address initialOwner, string calldata _imageUrl) public initializer {
+        __Ownable_init(initialOwner);
+        __UUPSUpgradeable_init();
+        imageUrl = _imageUrl;
     }
 
     /// @notice Update oracle report. This matches the callback signature expected by Boundless Market.
     ///         but can also be called by other means provided the proof is valid.
     function handleProof(bytes32 imageId, bytes calldata journalBytes, bytes calldata seal) external {
         require(imageId == IMAGE_ID, "Invalid image ID");
-        verifier.verify(seal, IMAGE_ID, sha256(journalBytes));
+        VERIFIER.verify(seal, IMAGE_ID, sha256(journalBytes));
 
         Journal memory journal = abi.decode(journalBytes, (Journal));
         require(Steel.validateCommitment(journal.commitment), "Invalid Steel commitment");
@@ -108,7 +117,6 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IBoundlessMarketCallback {
         );
     }
 
-    function _timestampAtSlot(uint256 slot) internal view returns (uint256) {
-        return genesis_block_timestamp + slot * SECONDS_PER_SLOT;
-    }
+    /// @notice Required by UUPSUpgradeable
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }
