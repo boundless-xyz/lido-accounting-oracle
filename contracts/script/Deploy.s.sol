@@ -20,9 +20,7 @@ import {Script} from "forge-std/Script.sol";
 import "forge-std/Test.sol";
 import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
-import {RiscZeroGroth16Verifier} from "risc0/groth16/RiscZeroGroth16Verifier.sol";
-import {ControlID} from "risc0/groth16/ControlID.sol";
-
+import {ImageID} from "../src/ImageID.sol"; // auto-generated contract after running `cargo build`.
 import {SecondOpinionOracle} from "../src/SecondOpinionOracle.sol";
 
 /// @notice Deployment script for the Lido oracle
@@ -89,7 +87,7 @@ contract Deploy is Script, RiscZeroCheats {
         uint256 genesisTimestamp = stdToml.readUint(config, string.concat(profileKey, ".genesisBlockTimestamp"));
         console2.log("Using genesis timestamp", genesisTimestamp);
 
-        SecondOpinionOracle oracle = new SecondOpinionOracle(verifier, genesisTimestamp);
+        SecondOpinionOracle oracle = new SecondOpinionOracle(verifier, ImageID.MAINNET_ID);
         console2.log("Deployed SecondOpinionOracle to", address(oracle));
 
         vm.stopBroadcast();
