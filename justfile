@@ -4,6 +4,9 @@ set dotenv-required := true
 build:
     cargo build --release
 
+daemon: build
+    ./target/release/cli daemon --beacon-rpc-url $BEACON_RPC_URL
+
 ## Proving tasks
 
 prove slot: build

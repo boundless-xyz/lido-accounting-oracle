@@ -46,10 +46,6 @@ use url::Url;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// slot at which to base the proofs
-    #[clap(long)]
-    slot: u64,
-
     /// Ethereum Node endpoint.
     #[clap(long, env)]
     eth_rpc_url: Url,
@@ -64,6 +60,10 @@ enum Command {
     /// Generate the input needed to generate a proof
     /// This is to support proof generation using Boundless or Bonsai or other remote proving services
     GenInput {
+        /// slot at which to base the proofs
+        #[clap(long)]
+        slot: u64,
+
         /// Ethereum beacon node HTTP RPC endpoint.
         #[clap(long, env)]
         beacon_rpc_url: Url,
@@ -73,6 +73,10 @@ enum Command {
     },
     /// Generate a proof from a given input
     Prove {
+        /// slot at which to base the proofs
+        #[clap(long)]
+        slot: u64,
+
         /// Ethereum beacon node HTTP RPC endpoint.
         #[clap(long, env)]
         beacon_rpc_url: Url,
@@ -93,6 +97,22 @@ enum Command {
         #[clap(long = "proof", short)]
         proof_path: PathBuf,
     },
+    Daemon {
+        /// Ethereum beacon node HTTP RPC endpoint.
+        #[clap(long, env)]
+        beacon_rpc_url: Url,
+        // /// RPC to chain where Boundless market is hosted
+        // #[clap(long, env)]
+        // boundless_rpc_url: Url,
+
+        // /// Private key for funded wallet on the chain with Boundless market
+        // #[clap(long, env)]
+        // boundless_wallet_private_key: PrivateKeySigner,
+
+        // /// Private key for Ethereum for submitting oracle reports
+        // #[clap(long, env)]
+        // eth_wallet_private_key: PrivateKeySigner,
+    },
 }
 
 #[tokio::main]
@@ -106,10 +126,11 @@ async fn main() -> Result<()> {
 
     match args.command {
         Command::GenInput {
+            slot,
             out_path,
             beacon_rpc_url,
         } => {
-            let input = build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?;
+            let input = build_input(slot, beacon_rpc_url, args.eth_rpc_url).await?;
 
             // sanity check
             let report = generate_oracle_report(
@@ -130,12 +151,13 @@ async fn main() -> Result<()> {
             write(out_path, &vm_stdin)?;
         }
         Command::Prove {
+            slot,
             beacon_rpc_url,
             out_path,
         } => {
-            let input = build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?;
+            let input = build_input(slot, beacon_rpc_url, args.eth_rpc_url).await?;
 
-            let proof = build_proof(input, args.slot).await?;
+            let proof = build_proof(input, slot).await?;
             write(out_path, bincode::serialize(&proof)?)?;
         }
         Command::Submit {
@@ -151,9 +173,50 @@ async fn main() -> Result<()> {
             )
             .await?
         }
+        Command::Daemon {
+            beacon_rpc_url,
+            // boundless_rpc_url,
+            // boundless_wallet_private_key,
+            eth_wallet_private_key,
+        } => {
+            tracing::info!("Starting daemon: polling beacon head every 12s");
+            let beacon_client = BeaconClient::new(beacon_rpc_url.clone())?;
+
+            loop {
+                match beacon_client.get_block_header("finalized").await {
+                    Ok(block) => {
+                        let slot = block.message.slot;
+                        tracing::info!("Current beacon finalized slot: {}", slot);
+                        if is_frame_boundary(slot) {
+                            let input =
+                                build_input(slot, beacon_rpc_url.clone(), args.eth_rpc_url.clone())
+                                    .await?;
+                            let proof = build_proof(input, slot).await?;
+                            submit_proof(
+                                eth_wallet_private_key,
+                                args.eth_rpc_url,
+                                contract,
+                                proof_path,
+                            )
+                            .await?
+                        }
+                    }
+                    Err(e) => tracing::warn!("Error requesting beacon head: {}", e),
+                }
+
+                tokio::time::sleep(std::time::Duration::from_secs(12)).await;
+            }
+        }
     }
 
     Ok(())
+}
+
+fn is_frame_boundary(slot: u64) -> bool {
+    const SLOTS_PER_EPOCH: u64 = 32;
+    const EPOCHS_PER_FRAME: u64 = 225;
+    const SLOTS_PER_FRAME: u64 = SLOTS_PER_EPOCH * EPOCHS_PER_FRAME;
+    slot % SLOTS_PER_FRAME == 0
 }
 
 /// Wire format for an oracle proof that includes the slot and a receipt.
