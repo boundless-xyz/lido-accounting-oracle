@@ -14,8 +14,8 @@ oracle_builder.path = "./zkvm/oracle"
 test-utils.path = "./crates/test-utils"
 beacon-state.path = "./crates/beacon-state"
 
-alloy = { version = "0.15", features = ["full"] }
-alloy-contract = { version = "0.15" }
+alloy = { version = "1.1.2", features = ["full"] }
+alloy-contract = { version = "1.1.2" }
 alloy-primitives = { version = "1.2.1", default-features = false, features = ["rlp", "serde", "std"] }
 alloy-sol-types = { version = "1.2.1" }
 anyhow = { version = "1.0.75" }
@@ -27,25 +27,27 @@ methods = { path = "./methods" }
 risc0-build = { version = "3.0.3", features = ["docker"] }
 risc0-build-ethereum = { git = "https://github.com/risc0/risc0-ethereum", tag = "v3.0.0" }
 risc0-ethereum-contracts = { git = "https://github.com/risc0/risc0-ethereum", tag = "v3.0.0" }
-risc0-steel = { git = "https://github.com/risc0/risc0-ethereum", tag = "v2.1.0", default-features = false }
+risc0-steel = { git = "https://github.com/boundless-xyz/steel", tag = "v2.4.1", default-features = false }
 risc0-zkvm = { version = "3.0.3" }
 risc0-zkp = { version = "3.0.2" }
 risc0-zkvm-platform = { version = "2.2.1", default-features = false }
-revm = { version = "23.1", default-features = false, features = ["std"] }
+revm = { version = "29.0", default-features = false, features = ["std"] }
 
-ethereum-consensus = { git = "https://github.com/boundless-xyz/ethereum-consensus.git", rev = "1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef", default-features = false, features = ["serde"] }
-ssz_rs = { git = "https://github.com/willemolding/ssz-rs", rev = "d939604c3693aadaff63dcacf9a810d8845fafef"}
-ssz-multiproofs = { git = "https://github.com/boundless-xyz/Signal-Ethereum", rev = "b0ff3ade8ae689431e355b97070bcdb4fefaa0cd" }
+ethereum-consensus = { git = "https://github.com/boundless-xyz/ethereum-consensus.git", rev = "1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef", default-features = false, features = [
+    "serde",
+] }
+ssz_rs = { git = "https://github.com/ec2/ssz-rs", rev = "f9348a9c91948e69b820cd91daef28666b37133b" }
+ssz-multiproofs = { git = "https://github.com/boundless-xyz/Signal-Ethereum", rev = "313da76d9127235d90afec9aefef6cd60ae93891" }
 
-serde = { version = "=1.0.219", features = ["derive", "std"] }
+serde = { version = "1.0.228", features = ["derive", "std"] }
 serde_json = "1.0.133"
 url = { version = "2.5" }
 bitvec = { version = "1", features = ["serde"] }
-sha2 = "0.10.8"
+sha2 = "=0.10.9"
 tracing = "0.1.41"
 
 tokio = { version = "1.35", features = ["full"] }
 
 [patch."https://github.com/ralexstokes/ssz-rs"]
 # Get the merkle tree empty node virtualization so non-trivial merkle trees actually fit in memory
-ssz_rs = { git = "https://github.com/willemolding/ssz-rs", rev = "d939604c3693aadaff63dcacf9a810d8845fafef"}
+ssz_rs = { git = "https://github.com/ec2/ssz-rs", rev = "f9348a9c91948e69b820cd91daef28666b37133b" }
