@@ -37,7 +37,7 @@ ethereum-consensus = { git = "https://github.com/boundless-xyz/ethereum-consensu
     "serde",
 ] }
 ssz_rs = { git = "https://github.com/willemolding/ssz-rs", rev = "f9348a9c91948e69b820cd91daef28666b37133b" }
-ssz-multiproofs = { git = "https://github.com/boundless-xyz/Signal-Ethereum", rev = "313da76d9127235d90afec9aefef6cd60ae93891" }
+ssz-multiproofs = { git = "https://github.com/boundless-xyz/Signal-Ethereum", rev = "134f415b036a013b2a6b1934b7cfd4b8edcb45b6" }
 
 serde = { version = "1.0.228", features = ["derive", "std"] }
 serde_json = "1.0.133"

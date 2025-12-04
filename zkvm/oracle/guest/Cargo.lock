@@ -4773,7 +4773,7 @@ dependencies = [
 [[package]]
 name = "ssz-multiproofs"
 version = "1.0.0"
-source = "git+https://github.com/boundless-xyz/Signal-Ethereum?rev=313da76d9127235d90afec9aefef6cd60ae93891#313da76d9127235d90afec9aefef6cd60ae93891"
+source = "git+https://github.com/boundless-xyz/Signal-Ethereum?rev=134f415b036a013b2a6b1934b7cfd4b8edcb45b6#134f415b036a013b2a6b1934b7cfd4b8edcb45b6"
 dependencies = [
  "alloy-primitives",
  "bitvec",
