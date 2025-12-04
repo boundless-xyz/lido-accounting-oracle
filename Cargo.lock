@@ -1506,7 +1506,7 @@ dependencies = [
  "ethereum-consensus 0.1.1 (git+https://github.com/boundless-xyz/ethereum-consensus.git?rev=1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef)",
  "serde",
  "serde_json",
- "ssz_rs",
+ "ssz_rs 0.9.0 (git+https://github.com/willemolding/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b)",
 ]
 
 [[package]]
@@ -2684,7 +2684,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.10.9",
- "ssz_rs",
+ "ssz_rs 0.9.0 (git+https://github.com/willemolding/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b)",
  "thiserror 1.0.69",
 ]
 
@@ -2706,7 +2706,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.10.9",
- "ssz_rs",
+ "ssz_rs 0.9.0 (git+https://github.com/willemolding/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b)",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
@@ -3070,7 +3070,7 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "quote",
- "ssz_rs",
+ "ssz_rs 0.9.0 (git+https://github.com/willemolding/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b)",
  "syn 2.0.111",
 ]
 
@@ -3949,7 +3949,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "ssz-multiproofs",
- "ssz_rs",
+ "ssz_rs 0.9.0 (git+https://github.com/willemolding/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b)",
  "test-utils",
  "thiserror 2.0.17",
  "tokio",
@@ -6785,7 +6785,7 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "smallvec",
- "ssz_rs",
+ "ssz_rs 0.9.0 (git+https://github.com/ec2/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b)",
  "thiserror 2.0.17",
  "tracing",
 ]
@@ -6798,9 +6798,23 @@ dependencies = [
  "alloy-primitives",
  "bitvec",
  "rayon",
+ "sha2 0.10.9",
+ "ssz_rs_derive 0.9.0 (git+https://github.com/ec2/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b)",
+ "thread_local",
+ "tracing",
+]
+
+[[package]]
+name = "ssz_rs"
+version = "0.9.0"
+source = "git+https://github.com/willemolding/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b#f9348a9c91948e69b820cd91daef28666b37133b"
+dependencies = [
+ "alloy-primitives",
+ "bitvec",
+ "rayon",
  "serde",
  "sha2 0.10.9",
- "ssz_rs_derive",
+ "ssz_rs_derive 0.9.0 (git+https://github.com/willemolding/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b)",
  "thread_local",
  "tracing",
 ]
@@ -6809,6 +6823,16 @@ dependencies = [
 name = "ssz_rs_derive"
 version = "0.9.0"
 source = "git+https://github.com/ec2/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b#f9348a9c91948e69b820cd91daef28666b37133b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "ssz_rs_derive"
+version = "0.9.0"
+source = "git+https://github.com/willemolding/ssz-rs?rev=f9348a9c91948e69b820cd91daef28666b37133b#f9348a9c91948e69b820cd91daef28666b37133b"
 dependencies = [
  "proc-macro2",
  "quote",
