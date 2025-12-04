@@ -31,7 +31,6 @@ struct Journal {
     Report report;
     bytes32 blockRoot;
     Steel.Commitment commitment;
-    bytes32 membershipCommitment;
 }
 
 /// @title LIP-23 beacon chain oracle interface

@@ -49,7 +49,6 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IBoundlessMarketCallback {
     /// @notice Emitted when a new report is stored.
     event ReportUpdated(
         uint256 refSlot,
-        bytes32 membershipCommitment,
         uint256 clBalanceGwei,
         uint256 withdrawalVaultBalanceWei,
         uint256 totalDepositedValidators,
@@ -80,7 +79,6 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IBoundlessMarketCallback {
 
         emit ReportUpdated(
             journal.refSlot,
-            journal.membershipCommitment,
             journal.report.clBalanceGwei,
             journal.report.withdrawalVaultBalanceWei,
             journal.report.totalDepositedValidators,

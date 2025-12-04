@@ -30,6 +30,7 @@ use lido_oracle_core::{
     ETH_MAINNET_CHAIN_SPEC,
 };
 use oracle_builder::{MAINNET_ELF, MAINNET_ID};
+use risc0_steel::ethereum::EthEvmEnv;
 use risc0_zkvm::{
     default_prover, sha::Digestible, ExecutorEnv, InnerReceipt, ProverOpts, Receipt,
     VerifierContext,
@@ -164,21 +165,30 @@ struct Proof {
 
 #[tracing::instrument(skip(beacon_rpc_url, eth_rpc_url))]
 async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Result<Input<'a>> {
-    let beacon_client = BeaconClient::new_with_cache(beacon_rpc_url, "./beacon-cache")?;
+    let beacon_client = BeaconClient::new_with_cache(beacon_rpc_url.clone(), "./beacon-cache")?;
     let provider = ProviderBuilder::new().connect_http(eth_rpc_url);
 
     let beacon_block_header = beacon_client.get_block_header(slot).await?;
     let beacon_state = beacon_client.get_beacon_state(slot).await?;
+    // It is important to get the beacon block at slot + 1 to ensure it can reference the desired beacon slot via EIP-4788
     let execution_block_hash = beacon_client.get_eth1_block_hash_at_slot(slot + 1).await?;
 
-    let input = Input::build(
-        &ETH_MAINNET_CHAIN_SPEC,
+    // build the Steel input for reading the balance and block root
+    let env = EthEvmEnv::builder()
+        .provider(provider.clone())
+        .beacon_api(beacon_rpc_url)
+        .chain_spec(&ETH_MAINNET_CHAIN_SPEC)
+        .block_hash(B256::from_slice(execution_block_hash.as_slice()))
+        .build()
+        .await
+        .unwrap();
+
+    let input = Input::build_beacon_commit(
+        env,
         &beacon_block_header.message,
         &beacon_state,
-        &execution_block_hash,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
-        provider,
     )
     .await?;
 

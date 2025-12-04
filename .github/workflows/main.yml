@@ -34,22 +34,18 @@ jobs:
         uses: risc0/risc0/.github/actions/rustup@main
 
       - name: Install Foundry
-        uses: risc0/foundry-toolchain@2fe7e70b520f62368a0e3c464f997df07ede420f
+        uses: foundry-rs/foundry-toolchain@v1
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: "2.0.0"
-          toolchain-version: "1.85.0"
+          risczero-version: "3.0.3"
+          toolchain-version: "1.88.0"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: build rust membership guest
-        working-directory: guests/membership
-        run: cargo build
   
       - name: build rust oracle guest
-        working-directory: guests/oracle
+        working-directory: zkvm/oracle
         run: cargo build
 
       - name: build solidity contracts
@@ -61,7 +57,7 @@ jobs:
       - name: run tests
         env:
             RISC0_DEV_MODE: true
-        run: cargo test --features skip-verify
+        run: cargo test
 
       - name: run foundry tests in dev mode
         working-directory: contracts
@@ -81,17 +77,13 @@ jobs:
         uses: risc0/risc0/.github/actions/rustup@main
 
       - name: Install Foundry
-        uses: risc0/foundry-toolchain@2fe7e70b520f62368a0e3c464f997df07ede420f
+        uses: foundry-rs/foundry-toolchain@v1
 
       - name: lint rust code
         run: cargo fmt --all --check
 
-      - name: lint membership guest rust code
-        working-directory: guests/membership/guest
-        run: cargo fmt --all --check
-
       - name: lint oracle guest rust code
-        working-directory: guests/oracle/guest
+        working-directory: zkvm/oracle/guest
         run: cargo fmt --all --check
 
       - name: check solidity code formatting

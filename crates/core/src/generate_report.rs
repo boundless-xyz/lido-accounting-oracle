@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::eip4788::{self, Eip4788Call};
 use crate::input::Input;
 use crate::soltypes::{Journal, Report};
 use crate::{error, u64_from_b256, Node};
 use alloy_primitives::{Address, U256};
+use alloy_sol_types::SolCall;
 use bitvec::prelude::*;
 use bitvec::vec::BitVec;
 use risc0_steel::ethereum::EthChainSpec;
-use risc0_steel::Account;
-use sha2::{Digest, Sha256};
+use risc0_steel::{Account, Contract};
 use ssz_multiproofs::ValueIterator;
 
 use crate::error::Result;
@@ -32,17 +33,23 @@ pub fn generate_oracle_report(
     withdrawal_vault_address: Address,
 ) -> Result<Journal> {
     let Input {
-        block_root,
+        header_timestamp,
         block_multiproof,
         state_multiproof,
         validators_multiproof,
         evm_input,
     } = input;
+    let evm_env = evm_input.into_env(spec);
 
     // obtain the withdrawal vault balance from the EVM input
-    let evm_env = evm_input.into_env(spec);
     let account = Account::new(withdrawal_vault_address, &evm_env);
     let withdrawal_vault_balance: U256 = account.info().balance;
+
+    // Obtain the block_root using EIP-4788 call
+    // indexed by header_timestamp
+    let eip4788_contract = Contract::new(eip4788::ADDRESS, &evm_env);
+    let call = Eip4788Call::new((U256::from(header_timestamp),));
+    let block_root = eip4788_contract.call_builder(&call).call();
 
     tracing::info!("Verifying block multiproof");
     block_multiproof.verify(&block_root)?;
@@ -113,7 +120,6 @@ pub fn generate_oracle_report(
         },
         blockRoot: block_root,
         commitment: evm_env.into_commitment().into(),
-        membershipCommitment: hash_bitvec(&membership).into(),
     };
 
     Ok(journal)
@@ -140,19 +146,4 @@ fn accumulate_balances<'a, I: Iterator<Item = (u64, &'a Node)>>(
         cl_balance += balance;
     }
     cl_balance
-}
-
-/// Hash a bitvec in a way that includes the bitlength. Just hashing the underlying bytes is not sufficient
-/// as any bits above the bitlength would be malleable
-fn hash_bitvec(bv: &BitVec<u32>) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-
-    // Hash bit length first
-    hasher.update(&bv.len().to_le_bytes());
-
-    // Access underlying storage directly without cloning
-    let raw_slice = bv.as_raw_slice();
-    hasher.update(bytemuck::cast_slice(raw_slice));
-
-    hasher.finalize().into()
 }

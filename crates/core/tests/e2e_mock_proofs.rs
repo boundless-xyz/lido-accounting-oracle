@@ -15,13 +15,20 @@
 use std::process::Command;
 use std::str::FromStr;
 
+use alloy::eips::BlockId;
 use alloy::hex::FromHex;
+use alloy::rpc::types::TransactionRequest;
 use alloy::signers::local::PrivateKeySigner;
+use alloy::{
+    node_bindings::{Anvil, AnvilInstance},
+    providers::{ext::AnvilApi, Provider, ProviderBuilder},
+};
+use alloy_primitives::{address, Bytes, B256, U256};
 use alloy_primitives::{utils::parse_ether, Address};
-use alloy_primitives::{Bytes, B256, U256};
 use alloy_sol_types::SolValue;
 use ethereum_consensus::phase0::presets::mainnet::BeaconBlockHeader;
 use ethereum_consensus::ssz::prelude::*;
+use lido_oracle_core::eip4788::{ADDRESS as BLOCK_ROOTS_ADDRESS, CODE};
 use lido_oracle_core::soltypes::IBoundlessMarketCallback;
 use lido_oracle_core::{
     generate_oracle_report,
@@ -31,14 +38,13 @@ use lido_oracle_core::{
 };
 use oracle_builder::MAINNET_ID;
 use regex::Regex;
+use risc0_steel::ethereum::EthEvmEnv;
 use risc0_zkvm::sha::Digestible;
 use risc0_zkvm::ReceiptClaim;
+use serde_json::json;
 use test_utils::{TestStateBuilder, CAPELLA_FORK_SLOT};
 
-use alloy::{
-    node_bindings::{Anvil, AnvilInstance},
-    providers::{ext::AnvilApi, Provider, ProviderBuilder},
-};
+const SYSTEM_ADDRESS: Address = address!("fffffffffffffffffffffffffffffffffffffffe");
 
 /// Returns an Anvil provider the oracle contracts deployed and the WITHDRAWAL_VAULT_ADDRESS balance set to 33 ether
 async fn test_provider() -> (AnvilInstance, impl Provider + Clone, Address) {
@@ -58,6 +64,12 @@ async fn test_provider() -> (AnvilInstance, impl Provider + Clone, Address) {
         .connect_http(rpc_url.parse().unwrap());
     let node_info = provider.anvil_node_info().await.unwrap();
     println!("Anvil started: {:?}", node_info);
+
+    // Deploy the EIP-4788 contract code at the expected address
+    provider
+        .anvil_set_code(BLOCK_ROOTS_ADDRESS, Bytes::copy_from_slice(&CODE))
+        .await
+        .unwrap();
 
     // Set the balance of the WITHDRAWAL_VAULT_ADDRESS to 33 ether
     provider
@@ -118,21 +130,30 @@ async fn test_submit_report() -> anyhow::Result<()> {
     block_header.slot = s.slot();
     block_header.state_root = s.hash_tree_root().unwrap();
 
-    let execution_block_root = provider
-        .get_block_by_number(1.into())
+    // Store this block in the EIP-4788 contract storage for the input builder to reference
+    let block_root = block_header.hash_tree_root().unwrap();
+    set_eip4788_beacon_root(&provider, block_root).await?;
+
+    let execution_block_header = provider
+        .get_block(BlockId::latest())
         .await?
         .unwrap()
-        .into_header()
-        .hash;
+        .into_header();
 
-    let input = Input::build(
-        &ANVIL_CHAIN_SPEC,
+    let env = EthEvmEnv::builder()
+        .provider(provider.clone())
+        .chain_spec(&ANVIL_CHAIN_SPEC)
+        .block_hash(B256::from_slice(execution_block_header.hash.as_slice()))
+        .build()
+        .await
+        .unwrap();
+
+    let input = Input::build_blockhash_commit(
+        env,
         &block_header,
         &s,
-        &execution_block_root,
         &WITHDRAWAL_CREDENTIALS,
         WITHDRAWAL_VAULT_ADDRESS,
-        provider.clone(),
     )
     .await?;
 
@@ -185,4 +206,47 @@ fn mock_prove_claim(claim_digest: B256) -> Bytes {
     buf.extend_from_slice(&SELECTOR);
     buf.extend_from_slice(claim_digest.as_slice()); // B256 -> &[u8;32]
     Bytes::from(buf)
+}
+
+/// This manually performs the operation done automatically by block producers since EIP-4788
+/// It impersonates the SYSTEM_ADDRESS to call the EIP-4788 contract and set the block root
+/// for the current block timestamp.
+/// This disables automining so this function can be called and then the block root used in a transaction in the same block.
+async fn set_eip4788_beacon_root(
+    provider: &impl Provider,
+    beacon_block_root: B256,
+) -> anyhow::Result<()> {
+    provider.anvil_set_auto_mine(false).await.unwrap();
+    provider
+        .anvil_impersonate_account(SYSTEM_ADDRESS)
+        .await
+        .unwrap();
+
+    // Set the balance of the SYSTEM_ADDRESS to 1 ether
+    provider
+        .anvil_set_balance(SYSTEM_ADDRESS, parse_ether("1").unwrap())
+        .await
+        .unwrap();
+
+    // Create the tx from SYSTEM to update the EIP-4788 contract
+    let tx = TransactionRequest::default()
+        .from(SYSTEM_ADDRESS)
+        .to(BLOCK_ROOTS_ADDRESS)
+        .input(Bytes::copy_from_slice(beacon_block_root.as_slice()).into())
+        .gas_limit(100_000u64)
+        .max_fee_per_gas(1_000_000_000) // 1 gwei
+        .max_priority_fee_per_gas(1_000_000_000); // 1 gwei
+
+    let _tx_hash: B256 = provider
+        .raw_request("eth_sendTransaction".into(), json!([tx]))
+        .await?;
+
+    // progress the block so the state is committed in the header
+    provider
+        .anvil_stop_impersonating_account(SYSTEM_ADDRESS)
+        .await
+        .unwrap();
+    provider.anvil_set_auto_mine(true).await.unwrap();
+
+    Ok(())
 }
