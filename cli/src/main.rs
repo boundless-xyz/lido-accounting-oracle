@@ -23,21 +23,20 @@ use anyhow::{bail, Context, Result};
 use beacon_client::BeaconClient;
 use clap::Parser;
 use lido_oracle_core::{
-    generate_oracle_report,
-    input::Input,
-    mainnet::{WITHDRAWAL_CREDENTIALS, WITHDRAWAL_VAULT_ADDRESS},
-    soltypes::IBoundlessMarketCallback,
-    ETH_MAINNET_CHAIN_SPEC,
+    generate_oracle_report, input::Input, mainnet, sepolia, soltypes::IBoundlessMarketCallback,
+    ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC,
 };
-use oracle_builder::{MAINNET_ELF, MAINNET_ID};
-use risc0_steel::ethereum::EthEvmEnv;
+use oracle_builder::{MAINNET_ELF, MAINNET_ID, SEPOLIA_ELF, SEPOLIA_ID};
+use risc0_steel::{config::ChainSpec, ethereum::EthEvmEnv, revm::primitives::hardfork::SpecId};
 use risc0_zkvm::{
     default_prover, sha::Digestible, ExecutorEnv, InnerReceipt, ProverOpts, Receipt,
     VerifierContext,
 };
 use std::{
+    env,
     fs::{read, write},
     path::PathBuf,
+    sync::LazyLock,
 };
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
@@ -92,7 +91,7 @@ enum Command {
 
         /// SecondOpinionOracle contract address
         #[clap(long, env)]
-        contract: Address,
+        oracle_contract: Address,
 
         #[clap(long = "proof", short)]
         proof_path: PathBuf,
@@ -108,10 +107,13 @@ enum Command {
         // /// Private key for funded wallet on the chain with Boundless market
         // #[clap(long, env)]
         // boundless_wallet_private_key: PrivateKeySigner,
+        /// Private key for Ethereum for submitting oracle reports
+        #[clap(long, env)]
+        eth_wallet_private_key: PrivateKeySigner,
 
-        // /// Private key for Ethereum for submitting oracle reports
-        // #[clap(long, env)]
-        // eth_wallet_private_key: PrivateKeySigner,
+        /// SecondOpinionOracle contract address
+        #[clap(long, env)]
+        oracle_contract: Address,
     },
 }
 
@@ -123,6 +125,7 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+    let (image_id, elf, spec, withdrawal_credentials, vault_address) = chain_values_from_env();
 
     match args.command {
         Command::GenInput {
@@ -135,9 +138,9 @@ async fn main() -> Result<()> {
             // sanity check
             let report = generate_oracle_report(
                 input.clone(),
-                &ETH_MAINNET_CHAIN_SPEC,
-                &WITHDRAWAL_CREDENTIALS,
-                WITHDRAWAL_VAULT_ADDRESS,
+                spec,
+                &withdrawal_credentials,
+                vault_address,
             )?;
             tracing::info!("Input generates report: {:?}", report);
 
@@ -157,19 +160,21 @@ async fn main() -> Result<()> {
         } => {
             let input = build_input(slot, beacon_rpc_url, args.eth_rpc_url).await?;
 
-            let proof = build_proof(input, slot).await?;
+            let proof = build_proof(elf, input, slot).await?;
             write(out_path, bincode::serialize(&proof)?)?;
         }
         Command::Submit {
             eth_wallet_private_key,
             proof_path,
-            contract,
+            oracle_contract,
         } => {
+            let proof: Proof = bincode::deserialize(&read(proof_path)?)?;
             submit_proof(
+                image_id,
                 eth_wallet_private_key,
                 args.eth_rpc_url,
-                contract,
-                proof_path,
+                oracle_contract,
+                proof,
             )
             .await?
         }
@@ -178,6 +183,7 @@ async fn main() -> Result<()> {
             // boundless_rpc_url,
             // boundless_wallet_private_key,
             eth_wallet_private_key,
+            oracle_contract,
         } => {
             tracing::info!("Starting daemon: polling beacon head every 12s");
             let beacon_client = BeaconClient::new(beacon_rpc_url.clone())?;
@@ -188,15 +194,20 @@ async fn main() -> Result<()> {
                         let slot = block.message.slot;
                         tracing::info!("Current beacon finalized slot: {}", slot);
                         if is_frame_boundary(slot) {
+                            tracing::info!("Generating report for slot: {}", slot);
+
                             let input =
                                 build_input(slot, beacon_rpc_url.clone(), args.eth_rpc_url.clone())
                                     .await?;
-                            let proof = build_proof(input, slot).await?;
+
+                            let proof = build_proof(elf, input, slot).await?;
+
                             submit_proof(
-                                eth_wallet_private_key,
-                                args.eth_rpc_url,
-                                contract,
-                                proof_path,
+                                image_id,
+                                eth_wallet_private_key.clone(),
+                                args.eth_rpc_url.clone(),
+                                oracle_contract,
+                                proof,
                             )
                             .await?
                         }
@@ -236,11 +247,13 @@ async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Re
     // It is important to get the beacon block at slot + 1 to ensure it can reference the desired beacon slot via EIP-4788
     let execution_block_hash = beacon_client.get_eth1_block_hash_at_slot(slot + 1).await?;
 
+    let (_, _, spec, withdrawal_credentials, vault_address) = chain_values_from_env();
+
     // build the Steel input for reading the balance and block root
     let env = EthEvmEnv::builder()
         .provider(provider.clone())
         .beacon_api(beacon_rpc_url)
-        .chain_spec(&ETH_MAINNET_CHAIN_SPEC)
+        .chain_spec(&spec)
         .block_hash(B256::from_slice(execution_block_hash.as_slice()))
         .build()
         .await
@@ -250,15 +263,15 @@ async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Re
         env,
         &beacon_block_header.message,
         &beacon_state,
-        &WITHDRAWAL_CREDENTIALS,
-        WITHDRAWAL_VAULT_ADDRESS,
+        &withdrawal_credentials,
+        vault_address,
     )
     .await?;
 
     Ok(input)
 }
 
-async fn build_proof<'a>(input: Input<'a>, slot: u64) -> Result<Proof> {
+async fn build_proof<'a>(elf: &[u8], input: Input<'a>, slot: u64) -> Result<Proof> {
     let env = ExecutorEnv::builder()
         .write_frame(&bincode::serialize(&input)?)
         .build()?;
@@ -267,7 +280,7 @@ async fn build_proof<'a>(input: Input<'a>, slot: u64) -> Result<Proof> {
     let session_info = default_prover().prove_with_ctx(
         env,
         &VerifierContext::default(),
-        MAINNET_ELF,
+        elf,
         &ProverOpts::groth16(),
     )?;
     tracing::info!("total cycles: {}", session_info.stats.total_cycles);
@@ -279,26 +292,26 @@ async fn build_proof<'a>(input: Input<'a>, slot: u64) -> Result<Proof> {
 }
 
 async fn submit_proof(
+    image_id: [u32; 8],
     eth_wallet_private_key: PrivateKeySigner,
     eth_rpc_url: Url,
     contract: Address,
-    in_path: PathBuf,
+    proof: Proof,
 ) -> Result<()> {
     let wallet = EthereumWallet::from(eth_wallet_private_key);
     let provider = ProviderBuilder::new()
         .wallet(wallet)
         .connect_http(eth_rpc_url);
 
-    let proof: Proof = bincode::deserialize(&read(in_path)?)?;
     tracing::info!("verifying locally for sanity check");
-    proof.receipt.verify(MAINNET_ID)?;
+    proof.receipt.verify(image_id)?;
     tracing::info!("Local verification passed :)");
 
     let seal = encode_seal(&proof.receipt).context("encoding seal")?;
 
     let contract = IBoundlessMarketCallback::new(contract, provider.clone());
     let call_builder = contract.handleProof(
-        B256::from_slice(bytemuck::cast_slice(&MAINNET_ID[..])),
+        B256::from_slice(bytemuck::cast_slice(&image_id[..])),
         proof.receipt.journal.bytes.into(),
         seal.into(),
     );
@@ -339,4 +352,31 @@ fn encode_seal(receipt: &risc0_zkvm::Receipt) -> Result<Vec<u8>> {
         _ => bail!("Unsupported receipt type"),
     };
     Ok(seal)
+}
+
+/// Read the ETH_NETWORK env var and return the corresponding chain values
+fn chain_values_from_env() -> (
+    [u32; 8],
+    &'static [u8],
+    &'static LazyLock<ChainSpec<SpecId>>,
+    alloy_primitives::FixedBytes<32>,
+    alloy_primitives::Address,
+) {
+    match env::var("ETH_NETWORK").unwrap_or_else(|_| "mainnet".to_string()) {
+        ref s if s == "mainnet" => (
+            MAINNET_ID,
+            MAINNET_ELF,
+            &ETH_MAINNET_CHAIN_SPEC,
+            mainnet::WITHDRAWAL_CREDENTIALS,
+            mainnet::WITHDRAWAL_VAULT_ADDRESS,
+        ),
+        ref s if s == "sepolia" => (
+            SEPOLIA_ID,
+            SEPOLIA_ELF,
+            &ETH_SEPOLIA_CHAIN_SPEC,
+            sepolia::WITHDRAWAL_CREDENTIALS,
+            sepolia::WITHDRAWAL_VAULT_ADDRESS,
+        ),
+        other => panic!("Unsupported ETH_NETWORK: {}", other),
+    }
 }

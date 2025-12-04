@@ -5,7 +5,7 @@ build:
     cargo build --release
 
 daemon: build
-    ./target/release/cli daemon --beacon-rpc-url $BEACON_RPC_URL
+    ./target/release/cli daemon
 
 ## Proving tasks
 
