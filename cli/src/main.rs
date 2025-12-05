@@ -13,18 +13,16 @@
 // limitations under the License.
 
 mod beacon_client;
+mod boundless;
+mod daemon;
 
 use alloy::{
     network::EthereumWallet, primitives::Address, providers::ProviderBuilder,
     signers::local::PrivateKeySigner,
 };
-use alloy_primitives::{utils::parse_ether, Bytes, B256, U256};
+use alloy_primitives::{Bytes, B256};
 use anyhow::{bail, Result};
 use beacon_client::BeaconClient;
-use boundless_market::{
-    request_builder::OfferParams, storage::storage_provider_from_env, Client, Deployment, GuestEnv,
-    StorageProviderConfig,
-};
 use clap::Parser;
 use lido_oracle_core::{
     generate_oracle_report, input::Input, mainnet, sepolia, soltypes::IBoundlessMarketCallback,
@@ -40,10 +38,11 @@ use std::{
     fs::{read, write},
     path::PathBuf,
     sync::LazyLock,
-    time::Duration,
 };
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
+
+use crate::boundless::BoundlessConfig;
 
 /// CLI for generating and submitting Lido oracle proofs
 #[derive(Parser, Debug)]
@@ -118,56 +117,6 @@ enum Command {
     },
 }
 
-/// Configuration for the requestor service.
-#[derive(Parser, Debug)]
-pub struct BoundlessConfig {
-    #[clap(long, env)]
-    pub boundless_rpc_url: Url,
-    #[clap(long, env)]
-    pub boundless_private_key: PrivateKeySigner,
-    #[clap(flatten, next_help_heading = "Storage Provider")]
-    pub storage_config: StorageProviderConfig,
-    /// Deployment of the Boundless contracts and services to use.
-    ///
-    /// Will be automatically resolved from the connected chain ID if unspecified.
-    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
-    deployment: Option<Deployment>,
-    /// URL that points to the oracle zkVM image
-    #[clap(long, env)]
-    pub image_url: Url,
-    /// ETH threshold for submitting new requests.
-    #[clap(long, value_parser = parse_ether, default_value = "0.01")]
-    eth_threshold: U256,
-    /// Maximum ETH price for requests.
-    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
-    max_eth_price: U256,
-    /// Lock collateral in raw value.
-    ///
-    /// Default value is 1 ZKC
-    #[clap(long, default_value = "1000000000000000000")]
-    lock_collateral: U256,
-    /// Ramp up period in seconds.
-    #[clap(long, default_value = "180")]
-    ramp_up_period: u64,
-    /// Lock timeout in seconds.
-    #[clap(long, default_value = "300")]
-    lock_timeout: u64,
-    /// Request timeout in seconds.
-    #[clap(long, default_value = "600")]
-    timeout: u64,
-    #[clap(long, default_value = "60")]
-    ramp_up_start_delay: u64,
-    /// Submission interval in seconds. How frequently checks how much ETH is available and sends requests.
-    #[clap(long, default_value = "10")]
-    submission_interval: u64,
-    /// Status check interval in seconds. Checks the status of the previously submitted requests.
-    #[clap(long, default_value = "20")]
-    status_check_interval: u64,
-    /// Maximum retry attempts for failed requests.
-    #[clap(long, default_value = "3")]
-    pub max_retries: u32,
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
@@ -229,69 +178,12 @@ async fn main() -> Result<()> {
             )
             .await?
         }
-        Command::Daemon {
-            beacon_rpc_url,
-            boundless_config,
-            eth_wallet_private_key,
-            oracle_contract,
-        } => {
-            tracing::info!("Starting daemon: polling beacon head every 12s");
-            let beacon_client = BeaconClient::new(beacon_rpc_url.clone())?;
-
-            let boundless_client = Client::builder()
-                .with_deployment(boundless_config.deployment.clone())
-                .with_rpc_url(boundless_config.boundless_rpc_url.clone())
-                .with_private_key(boundless_config.boundless_private_key.clone())
-                .with_storage_provider(Some(storage_provider_from_env()?))
-                .build()
-                .await?;
-
-            loop {
-                match beacon_client.get_block_header("finalized").await {
-                    Ok(block) => {
-                        let slot = block.message.slot;
-                        tracing::info!("Current beacon finalized slot: {}", slot);
-                        if is_frame_boundary(slot) {
-                            tracing::info!("Generating report for slot: {}", slot);
-
-                            let input =
-                                build_input(slot, beacon_rpc_url.clone(), args.eth_rpc_url.clone())
-                                    .await?;
-
-                            let proof = build_proof_boundless(
-                                &boundless_client,
-                                &boundless_config,
-                                input,
-                                slot,
-                            )
-                            .await?;
-
-                            submit_proof(
-                                image_id,
-                                eth_wallet_private_key.clone(),
-                                args.eth_rpc_url.clone(),
-                                oracle_contract,
-                                proof,
-                            )
-                            .await?
-                        }
-                    }
-                    Err(e) => tracing::warn!("Error requesting beacon head: {}", e),
-                }
-
-                tokio::time::sleep(std::time::Duration::from_secs(12)).await;
-            }
+        Command::Daemon { .. } => {
+            daemon::run_daemon(args, image_id).await?;
         }
     }
 
     Ok(())
-}
-
-fn is_frame_boundary(slot: u64) -> bool {
-    const SLOTS_PER_EPOCH: u64 = 32;
-    const EPOCHS_PER_FRAME: u64 = 225;
-    const SLOTS_PER_FRAME: u64 = SLOTS_PER_EPOCH * EPOCHS_PER_FRAME;
-    slot % SLOTS_PER_FRAME == 0
 }
 
 /// Wire format for an oracle proof that includes the slot and a receipt.
@@ -363,52 +255,6 @@ async fn build_proof<'a>(
         slot,
         seal: encode_seal(&session_info.receipt)?,
         journal: session_info.receipt.journal.bytes.into(),
-    })
-}
-
-async fn build_proof_boundless<'a>(
-    boundless_client: &Client,
-    boundless_config: &BoundlessConfig,
-    input: Input<'a>,
-    slot: u64,
-) -> Result<Proof> {
-    let env = GuestEnv::builder()
-        .write_frame(&bincode::serialize(&input)?)
-        .build_env();
-
-    let request = boundless_client
-        .new_request()
-        .with_env(env)
-        .with_program_url(boundless_config.image_url.clone())?
-        .with_groth16_proof()
-        .with_offer(
-            OfferParams::builder()
-                .min_price(parse_ether("0.001")?)
-                .max_price(parse_ether("0.002")?)
-                .timeout(1000)
-                .lock_timeout(500)
-                .ramp_up_period(100),
-        );
-
-    let (request_id, expires_at) = boundless_client.submit_offchain(request).await?;
-
-    let fulfillment = boundless_client
-        .wait_for_request_fulfillment(
-            request_id,
-            Duration::from_secs(5), // check every 5 seconds
-            expires_at,
-        )
-        .await?;
-    tracing::info!("Request {:x} fulfilled", request_id);
-
-    Ok(Proof {
-        slot,
-        journal: fulfillment
-            .data()?
-            .journal()
-            .expect("missing journal")
-            .clone(),
-        seal: fulfillment.seal,
     })
 }
 
