@@ -21,7 +21,7 @@ env:
 
 jobs:
   build-guest:
-    runs-on: [ self-hosted, prod, Linux, X64, cpu ]
+    runs-on: ubuntu-latest
 
     steps:
       - name: clone repository
@@ -31,11 +31,6 @@ jobs:
 
       - name: Install rust
         uses: risc0/risc0/.github/actions/rustup@main
-
-      - name: Install sccache
-        uses: boundless-xyz/boundless/.github/actions/sccache@main
-        with:
-          key: Linux-default
 
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
@@ -73,6 +68,3 @@ jobs:
           file: target/riscv-guest/oracle_builder/oracle/riscv32im-risc0-zkvm-elf/docker/sepolia.bin
           asset_name: sepolia_${{ steps.compute-image-ids.outputs.sepolia_image_id }}.bin
           tag: ${{ github.ref }}
-
-      - name: Show sccache stats
-        run: sccache --show-stats
