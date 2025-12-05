@@ -18,9 +18,13 @@ use alloy::{
     network::EthereumWallet, primitives::Address, providers::ProviderBuilder,
     signers::local::PrivateKeySigner,
 };
-use alloy_primitives::B256;
-use anyhow::{bail, Context, Result};
+use alloy_primitives::{utils::parse_ether, Bytes, B256, U256};
+use anyhow::{bail, Result};
 use beacon_client::BeaconClient;
+use boundless_market::{
+    request_builder::OfferParams, storage::storage_provider_from_env, Client, Deployment, GuestEnv,
+    StorageProviderConfig,
+};
 use clap::Parser;
 use lido_oracle_core::{
     generate_oracle_report, input::Input, mainnet, sepolia, soltypes::IBoundlessMarketCallback,
@@ -29,14 +33,14 @@ use lido_oracle_core::{
 use oracle_builder::{MAINNET_ELF, MAINNET_ID, SEPOLIA_ELF, SEPOLIA_ID};
 use risc0_steel::{config::ChainSpec, ethereum::EthEvmEnv, revm::primitives::hardfork::SpecId};
 use risc0_zkvm::{
-    default_prover, sha::Digestible, ExecutorEnv, InnerReceipt, ProverOpts, Receipt,
-    VerifierContext,
+    default_prover, sha::Digestible, ExecutorEnv, InnerReceipt, ProverOpts, VerifierContext,
 };
 use std::{
     env,
     fs::{read, write},
     path::PathBuf,
     sync::LazyLock,
+    time::Duration,
 };
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
@@ -100,13 +104,10 @@ enum Command {
         /// Ethereum beacon node HTTP RPC endpoint.
         #[clap(long, env)]
         beacon_rpc_url: Url,
-        // /// RPC to chain where Boundless market is hosted
-        // #[clap(long, env)]
-        // boundless_rpc_url: Url,
 
-        // /// Private key for funded wallet on the chain with Boundless market
-        // #[clap(long, env)]
-        // boundless_wallet_private_key: PrivateKeySigner,
+        #[clap(flatten, next_help_heading = "Boundless Config")]
+        boundless_config: BoundlessConfig,
+
         /// Private key for Ethereum for submitting oracle reports
         #[clap(long, env)]
         eth_wallet_private_key: PrivateKeySigner,
@@ -115,6 +116,56 @@ enum Command {
         #[clap(long, env)]
         oracle_contract: Address,
     },
+}
+
+/// Configuration for the requestor service.
+#[derive(Parser, Debug)]
+pub struct BoundlessConfig {
+    #[clap(long, env)]
+    pub boundless_rpc_url: Url,
+    #[clap(long, env)]
+    pub boundless_private_key: PrivateKeySigner,
+    #[clap(flatten, next_help_heading = "Storage Provider")]
+    pub storage_config: StorageProviderConfig,
+    /// Deployment of the Boundless contracts and services to use.
+    ///
+    /// Will be automatically resolved from the connected chain ID if unspecified.
+    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
+    deployment: Option<Deployment>,
+    /// URL that points to the oracle zkVM image
+    #[clap(long, env)]
+    pub image_url: Url,
+    /// ETH threshold for submitting new requests.
+    #[clap(long, value_parser = parse_ether, default_value = "0.01")]
+    eth_threshold: U256,
+    /// Maximum ETH price for requests.
+    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    max_eth_price: U256,
+    /// Lock collateral in raw value.
+    ///
+    /// Default value is 1 ZKC
+    #[clap(long, default_value = "1000000000000000000")]
+    lock_collateral: U256,
+    /// Ramp up period in seconds.
+    #[clap(long, default_value = "180")]
+    ramp_up_period: u64,
+    /// Lock timeout in seconds.
+    #[clap(long, default_value = "300")]
+    lock_timeout: u64,
+    /// Request timeout in seconds.
+    #[clap(long, default_value = "600")]
+    timeout: u64,
+    #[clap(long, default_value = "60")]
+    ramp_up_start_delay: u64,
+    /// Submission interval in seconds. How frequently checks how much ETH is available and sends requests.
+    #[clap(long, default_value = "10")]
+    submission_interval: u64,
+    /// Status check interval in seconds. Checks the status of the previously submitted requests.
+    #[clap(long, default_value = "20")]
+    status_check_interval: u64,
+    /// Maximum retry attempts for failed requests.
+    #[clap(long, default_value = "3")]
+    pub max_retries: u32,
 }
 
 #[tokio::main]
@@ -160,7 +211,7 @@ async fn main() -> Result<()> {
         } => {
             let input = build_input(slot, beacon_rpc_url, args.eth_rpc_url).await?;
 
-            let proof = build_proof(elf, input, slot).await?;
+            let proof = build_proof(image_id, elf, input, slot).await?;
             write(out_path, bincode::serialize(&proof)?)?;
         }
         Command::Submit {
@@ -180,13 +231,20 @@ async fn main() -> Result<()> {
         }
         Command::Daemon {
             beacon_rpc_url,
-            // boundless_rpc_url,
-            // boundless_wallet_private_key,
+            boundless_config,
             eth_wallet_private_key,
             oracle_contract,
         } => {
             tracing::info!("Starting daemon: polling beacon head every 12s");
             let beacon_client = BeaconClient::new(beacon_rpc_url.clone())?;
+
+            let boundless_client = Client::builder()
+                .with_deployment(boundless_config.deployment.clone())
+                .with_rpc_url(boundless_config.boundless_rpc_url.clone())
+                .with_private_key(boundless_config.boundless_private_key.clone())
+                .with_storage_provider(Some(storage_provider_from_env()?))
+                .build()
+                .await?;
 
             loop {
                 match beacon_client.get_block_header("finalized").await {
@@ -200,7 +258,13 @@ async fn main() -> Result<()> {
                                 build_input(slot, beacon_rpc_url.clone(), args.eth_rpc_url.clone())
                                     .await?;
 
-                            let proof = build_proof(elf, input, slot).await?;
+                            let proof = build_proof_boundless(
+                                &boundless_client,
+                                &boundless_config,
+                                input,
+                                slot,
+                            )
+                            .await?;
 
                             submit_proof(
                                 image_id,
@@ -234,7 +298,8 @@ fn is_frame_boundary(slot: u64) -> bool {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Proof {
     slot: u64,
-    receipt: Receipt,
+    journal: Bytes,
+    seal: Bytes,
 }
 
 #[tracing::instrument(skip(beacon_rpc_url, eth_rpc_url))]
@@ -271,7 +336,12 @@ async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Re
     Ok(input)
 }
 
-async fn build_proof<'a>(elf: &[u8], input: Input<'a>, slot: u64) -> Result<Proof> {
+async fn build_proof<'a>(
+    image_id: [u32; 8],
+    elf: &[u8],
+    input: Input<'a>,
+    slot: u64,
+) -> Result<Proof> {
     let env = ExecutorEnv::builder()
         .write_frame(&bincode::serialize(&input)?)
         .build()?;
@@ -285,9 +355,60 @@ async fn build_proof<'a>(elf: &[u8], input: Input<'a>, slot: u64) -> Result<Proo
     )?;
     tracing::info!("total cycles: {}", session_info.stats.total_cycles);
 
+    tracing::info!("verifying locally for sanity check");
+    session_info.receipt.verify(image_id)?;
+    tracing::info!("Local verification passed :)");
+
     Ok(Proof {
         slot,
-        receipt: session_info.receipt,
+        seal: encode_seal(&session_info.receipt)?,
+        journal: session_info.receipt.journal.bytes.into(),
+    })
+}
+
+async fn build_proof_boundless<'a>(
+    boundless_client: &Client,
+    boundless_config: &BoundlessConfig,
+    input: Input<'a>,
+    slot: u64,
+) -> Result<Proof> {
+    let env = GuestEnv::builder()
+        .write_frame(&bincode::serialize(&input)?)
+        .build_env();
+
+    let request = boundless_client
+        .new_request()
+        .with_env(env)
+        .with_program_url(boundless_config.image_url.clone())?
+        .with_groth16_proof()
+        .with_offer(
+            OfferParams::builder()
+                .min_price(parse_ether("0.001")?)
+                .max_price(parse_ether("0.002")?)
+                .timeout(1000)
+                .lock_timeout(500)
+                .ramp_up_period(100),
+        );
+
+    let (request_id, expires_at) = boundless_client.submit_offchain(request).await?;
+
+    let fulfillment = boundless_client
+        .wait_for_request_fulfillment(
+            request_id,
+            Duration::from_secs(5), // check every 5 seconds
+            expires_at,
+        )
+        .await?;
+    tracing::info!("Request {:x} fulfilled", request_id);
+
+    Ok(Proof {
+        slot,
+        journal: fulfillment
+            .data()?
+            .journal()
+            .expect("missing journal")
+            .clone(),
+        seal: fulfillment.seal,
     })
 }
 
@@ -303,17 +424,11 @@ async fn submit_proof(
         .wallet(wallet)
         .connect_http(eth_rpc_url);
 
-    tracing::info!("verifying locally for sanity check");
-    proof.receipt.verify(image_id)?;
-    tracing::info!("Local verification passed :)");
-
-    let seal = encode_seal(&proof.receipt).context("encoding seal")?;
-
     let contract = IBoundlessMarketCallback::new(contract, provider.clone());
     let call_builder = contract.handleProof(
         B256::from_slice(bytemuck::cast_slice(&image_id[..])),
-        proof.receipt.journal.bytes.into(),
-        seal.into(),
+        proof.journal,
+        proof.seal,
     );
     let pending_tx = call_builder.send().await?;
     tracing::info!("Submitted proof with tx hash: {}", pending_tx.tx_hash());
@@ -330,7 +445,7 @@ async fn submit_proof(
 /// circuits.
 ///
 /// copied here from risc0-ethereum-contracts crate as adding that crate creates a dependency hell with alloy
-fn encode_seal(receipt: &risc0_zkvm::Receipt) -> Result<Vec<u8>> {
+fn encode_seal(receipt: &risc0_zkvm::Receipt) -> Result<Bytes> {
     let seal = match receipt.inner.clone() {
         InnerReceipt::Fake(receipt) => {
             let seal = receipt.claim.digest().as_bytes().to_vec();
@@ -351,7 +466,7 @@ fn encode_seal(receipt: &risc0_zkvm::Receipt) -> Result<Vec<u8>> {
         }
         _ => bail!("Unsupported receipt type"),
     };
-    Ok(seal)
+    Ok(Bytes::from(seal))
 }
 
 /// Read the ETH_NETWORK env var and return the corresponding chain values

@@ -10,12 +10,12 @@ daemon: build
 ## Proving tasks
 
 prove slot: build
-    ./target/release/cli --slot {{slot}} prove --out ./membership_proof_{{slot}}.proof
+    ./target/release/cli prove --slot {{slot}}  --out ./membership_proof_{{slot}}.proof
 
 ## Submission to chain
 
 submit slot: build
-    ./target/release/cli --slot {{slot}} submit --proof ./aggregate_proof_{{slot}}.proof
+    ./target/release/cli submit --slot {{slot}} --proof ./aggregate_proof_{{slot}}.proof
 
 # Deploy contracts
 

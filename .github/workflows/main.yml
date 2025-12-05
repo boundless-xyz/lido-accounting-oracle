@@ -88,3 +88,39 @@ jobs:
 
       - name: check solidity code formatting
         run: forge fmt --check
+
+  build-docker:
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.arch }}", "${{ matrix.device }}" ]
+    strategy:
+      matrix:
+        include:
+          - os: Linux
+            arch: X64
+            feature: default
+            device: cpu
+    steps:
+      - name: clone repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install rust
+        uses: risc0/risc0/.github/actions/rustup@main
+
+      - name: Install sccache
+        uses: boundless-xyz/boundless/.github/actions/sccache@main
+        with:
+          key: Linux-default
+
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: "3.0.3"
+          toolchain-version: "1.88.0"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build guest with docker
+        env:
+          RISC0_USE_DOCKER: 1
+        run: cargo build --manifest-path=zkvm/oracle/Cargo.toml 
