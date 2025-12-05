@@ -92,24 +92,47 @@ pub async fn build_proof_boundless<'a>(
                 .ramp_up_period(boundless_config.ramp_up_period),
         );
 
-    let (request_id, expires_at) = boundless_client.submit_offchain(request).await?;
+    let (request_id, expires_at) = boundless_client.submit_onchain(request).await?;
 
-    let fulfillment = boundless_client
-        .wait_for_request_fulfillment(
-            request_id,
-            Duration::from_secs(boundless_config.status_check_interval),
-            expires_at,
-        )
-        .await?;
-    tracing::info!("Request {:x} fulfilled", request_id);
+    let mut attempts = 0;
+    while attempts < boundless_config.max_retries {
+        match boundless_client
+            .wait_for_request_fulfillment(
+                request_id,
+                Duration::from_secs(boundless_config.status_check_interval),
+                expires_at,
+            )
+            .await
+        {
+            Ok(fulfillment) => {
+                tracing::info!("Request {:x} fulfilled", request_id);
 
-    Ok(Proof {
-        slot,
-        journal: fulfillment
-            .data()?
-            .journal()
-            .expect("missing journal")
-            .clone(),
-        seal: fulfillment.seal,
-    })
+                return Ok(Proof {
+                    slot,
+                    journal: fulfillment
+                        .data()?
+                        .journal()
+                        .expect("missing journal")
+                        .clone(),
+                    seal: fulfillment.seal,
+                });
+            }
+            Err(e) => {
+                attempts += 1;
+                tracing::warn!(
+                    "Error checking status for request {:x} (attempt {}/{}): {}",
+                    request_id,
+                    attempts,
+                    boundless_config.max_retries,
+                    e
+                );
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(boundless_config.status_check_interval)).await;
+    }
+    return Err(anyhow::anyhow!(
+        "Failed to fulfill request {:x} after {} attempts",
+        request_id,
+        boundless_config.max_retries
+    ));
 }

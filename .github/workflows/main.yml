@@ -25,14 +25,7 @@ env:
 
 jobs:
   test:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.arch }}", "${{ matrix.device }}" ]
-    strategy:
-      matrix:
-        include:
-          - os: Linux
-            arch: X64
-            feature: default
-            device: cpu
+    runs-on: ubuntu-latest
     steps:
       # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
       - name: checkout dummy commit (submodule bug workaround)
@@ -79,14 +72,7 @@ jobs:
         run: forge test -vvv
 
   lint:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.arch }}", "${{ matrix.device }}" ]
-    strategy:
-      matrix:
-        include:
-          - os: Linux
-            arch: X64
-            feature: default
-            device: cpu
+    runs-on: ubuntu-latest
     steps:
       - name: checkout code
         uses: actions/checkout@v3
@@ -110,14 +96,7 @@ jobs:
         run: forge fmt --check
 
   build-docker:
-    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.arch }}", "${{ matrix.device }}" ]
-    strategy:
-      matrix:
-        include:
-          - os: Linux
-            arch: X64
-            feature: default
-            device: cpu
+    runs-on: ubuntu-latest
     steps:
       - name: clone repository
         uses: actions/checkout@v4
