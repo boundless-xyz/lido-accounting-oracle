@@ -67,10 +67,10 @@ pub async fn run_daemon(args: Args, image_id: [u32; 8]) -> Result<()> {
     }
 }
 
+/// Returns true if the given slot is at at the end of a Lido frame
 fn is_frame_boundary(slot: u64) -> bool {
-    true
-    // const SLOTS_PER_EPOCH: u64 = 32;
-    // const EPOCHS_PER_FRAME: u64 = 225;
-    // const SLOTS_PER_FRAME: u64 = SLOTS_PER_EPOCH * EPOCHS_PER_FRAME;
-    // slot % SLOTS_PER_FRAME == 0
+    const SLOTS_PER_EPOCH: u64 = 32;
+    const EPOCHS_PER_FRAME: u64 = 225;
+    const SLOTS_PER_FRAME: u64 = SLOTS_PER_EPOCH * EPOCHS_PER_FRAME;
+    (slot + 1) % SLOTS_PER_FRAME == 0
 }

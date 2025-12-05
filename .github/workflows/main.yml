@@ -106,11 +106,6 @@ jobs:
       - name: Install rust
         uses: risc0/risc0/.github/actions/rustup@main
 
-      - name: Install sccache
-        uses: boundless-xyz/boundless/.github/actions/sccache@main
-        with:
-          key: Linux-default
-
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
