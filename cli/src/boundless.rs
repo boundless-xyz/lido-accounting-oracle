@@ -21,15 +21,6 @@ pub struct BoundlessConfig {
     #[clap(long, env)]
     pub boundless_private_key: PrivateKeySigner,
 
-    #[clap(flatten, next_help_heading = "Storage Provider")]
-    pub storage_config: StorageProviderConfig,
-
-    /// Deployment of the Boundless contracts and services to use.
-    ///
-    /// Will be automatically resolved from the connected chain ID if unspecified.
-    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
-    pub deployment: Option<Deployment>,
-
     /// URL that points to the oracle zkVM image
     #[clap(long, env)]
     pub image_url: Url,
@@ -67,6 +58,17 @@ pub struct BoundlessConfig {
     /// Maximum retry attempts for failed requests.
     #[clap(long, default_value = "3")]
     pub max_retries: u32,
+
+    /// Storage provider configuration to use for Boundless
+    /// See https://docs.boundless.network/developers/tutorials/request#storage-providers
+    #[clap(flatten, next_help_heading = "Storage Provider")]
+    pub storage_config: StorageProviderConfig,
+
+    /// Deployment of the Boundless contracts and services to use.
+    ///
+    /// Will be automatically resolved from the connected chain ID if unspecified.
+    #[clap(flatten, next_help_heading = "Boundless Market Deployment")]
+    pub deployment: Option<Deployment>,
 }
 
 pub async fn build_proof_boundless<'a>(
