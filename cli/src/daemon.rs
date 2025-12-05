@@ -4,11 +4,11 @@ use anyhow::Result;
 use boundless_market::{storage::storage_provider_from_env, Client};
 
 use crate::{
-    beacon_client::BeaconClient, boundless::build_proof_boundless, build_input, submit_proof,
+    beacon_client::BeaconClient, boundless::build_proof_boundless, build_input, submit_proof, Args,
     Command,
 };
 
-pub async fn run_daemon(args: crate::Args, image_id: [u32; 8]) -> Result<()> {
+pub async fn run_daemon(args: Args, image_id: [u32; 8]) -> Result<()> {
     if let Command::Daemon {
         beacon_rpc_url,
         boundless_config,
@@ -16,7 +16,7 @@ pub async fn run_daemon(args: crate::Args, image_id: [u32; 8]) -> Result<()> {
         oracle_contract,
     } = args.command
     {
-        tracing::info!("Starting daemon: polling beacon head every 12s");
+        tracing::info!("Starting daemon: polling beacon head");
         let beacon_client = BeaconClient::new(beacon_rpc_url.clone())?;
 
         let boundless_client = Client::builder()
@@ -68,8 +68,9 @@ pub async fn run_daemon(args: crate::Args, image_id: [u32; 8]) -> Result<()> {
 }
 
 fn is_frame_boundary(slot: u64) -> bool {
-    const SLOTS_PER_EPOCH: u64 = 32;
-    const EPOCHS_PER_FRAME: u64 = 225;
-    const SLOTS_PER_FRAME: u64 = SLOTS_PER_EPOCH * EPOCHS_PER_FRAME;
-    slot % SLOTS_PER_FRAME == 0
+    true
+    // const SLOTS_PER_EPOCH: u64 = 32;
+    // const EPOCHS_PER_FRAME: u64 = 225;
+    // const SLOTS_PER_FRAME: u64 = SLOTS_PER_EPOCH * EPOCHS_PER_FRAME;
+    // slot % SLOTS_PER_FRAME == 0
 }

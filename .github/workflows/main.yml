@@ -12,14 +12,27 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# this is needed to gain access via OIDC to the S3 bucket for caching
+permissions:
+  id-token: write
+  contents: read
+
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RUST_BACKTRACE: "1"
-  RISC0_MONOREPO_REF: "release-1.2"
+  RISC0_RUST_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_VERSION: 3.0.3
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.arch }}", "${{ matrix.device }}" ]
+    strategy:
+      matrix:
+        include:
+          - os: Linux
+            arch: X64
+            feature: default
+            device: cpu
     steps:
       # This is a workaround from: https://github.com/actions/checkout/issues/590#issuecomment-970586842
       - name: checkout dummy commit (submodule bug workaround)
@@ -39,8 +52,8 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: "3.0.3"
-          toolchain-version: "1.88.0"
+          risczero-version: ${{ env.RISC0_VERSION }}
+          toolchain-version: ${{ env.RISC0_RUST_TOOLCHAIN_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   
@@ -66,7 +79,14 @@ jobs:
         run: forge test -vvv
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: [ self-hosted, prod, "${{ matrix.os }}", "${{ matrix.arch }}", "${{ matrix.device }}" ]
+    strategy:
+      matrix:
+        include:
+          - os: Linux
+            arch: X64
+            feature: default
+            device: cpu
     steps:
       - name: checkout code
         uses: actions/checkout@v3
@@ -115,8 +135,8 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: "3.0.3"
-          toolchain-version: "1.88.0"
+          risczero-version: ${{ env.RISC0_VERSION }}
+          toolchain-version: ${{ env.RISC0_RUST_TOOLCHAIN_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
