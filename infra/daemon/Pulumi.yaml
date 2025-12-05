@@ -1,0 +1,8 @@
+name: risc0-lido-accounting-oracle-daemon
+description: A daemon that will generate ZK proofs for Lido accounting oracle reports via Boundless every Lido frame
+runtime:
+  name: nodejs
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: aws-typescript
