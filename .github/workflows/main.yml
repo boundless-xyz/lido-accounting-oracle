@@ -12,10 +12,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# this is needed to gain access via OIDC to the S3 bucket for caching
+permissions:
+  id-token: write
+  contents: read
+
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   RUST_BACKTRACE: "1"
-  RISC0_MONOREPO_REF: "release-1.2"
+  RISC0_RUST_TOOLCHAIN_VERSION: 1.88.0
+  RISC0_VERSION: 3.0.3
 
 jobs:
   test:
@@ -39,8 +45,8 @@ jobs:
       - name: install cargo risczero
         uses: ./.github/actions/bininstall-risc0
         with:
-          risczero-version: "3.0.3"
-          toolchain-version: "1.88.0"
+          risczero-version: ${{ env.RISC0_VERSION }}
+          toolchain-version: ${{ env.RISC0_RUST_TOOLCHAIN_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   
@@ -88,3 +94,27 @@ jobs:
 
       - name: check solidity code formatting
         run: forge fmt --check
+
+  build-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: clone repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install rust
+        uses: risc0/risc0/.github/actions/rustup@main
+
+      - name: install cargo risczero
+        uses: ./.github/actions/bininstall-risc0
+        with:
+          risczero-version: ${{ env.RISC0_VERSION }}
+          toolchain-version: ${{ env.RISC0_RUST_TOOLCHAIN_VERSION }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build guest with docker
+        env:
+          RISC0_USE_DOCKER: 1
+        run: cargo build --manifest-path=zkvm/oracle/Cargo.toml 

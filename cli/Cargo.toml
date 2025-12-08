@@ -34,3 +34,4 @@ reqwest-middleware = "0.4.0"
 http-cache-reqwest = "0.15.0"
 bytemuck.workspace = true
 bincode.workspace = true
+boundless-market = "1.1.0"

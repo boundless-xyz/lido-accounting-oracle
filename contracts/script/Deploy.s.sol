@@ -82,12 +82,19 @@ contract Deploy is Script, RiscZeroCheats {
             console2.log("Using IRiscZeroVerifier contract deployed at", address(verifier));
         }
 
-        // Deploy the application contract.
-        string memory profileKey = string.concat(".profile.", configProfile);
-        uint256 genesisTimestamp = stdToml.readUint(config, string.concat(profileKey, ".genesisBlockTimestamp"));
-        console2.log("Using genesis timestamp", genesisTimestamp);
+        // Read the image ID from env var or fall back to using what is auto-generated from the build
+        bytes32 fbImageId;
+        if (chainId == 11155111) {
+            fbImageId = ImageID.SEPOLIA_ID;
+        } else {
+            fbImageId = ImageID.MAINNET_ID;
+        }
+        bytes32 imageId = vm.envOr("IMAGE_ID", fbImageId);
+        console2.log("Contract deploying with Image ID:");
+        console2.logBytes32(imageId);
 
-        SecondOpinionOracle oracle = new SecondOpinionOracle(verifier, ImageID.MAINNET_ID);
+        // Deploy the application contract.
+        SecondOpinionOracle oracle = new SecondOpinionOracle(verifier, imageId);
         console2.log("Deployed SecondOpinionOracle to", address(oracle));
 
         vm.stopBroadcast();
