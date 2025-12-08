@@ -23,6 +23,7 @@ use alloy::{
 use alloy_primitives::{Bytes, B256};
 use anyhow::{bail, Result};
 use beacon_client::BeaconClient;
+use boundless_market::{storage::storage_provider_from_env, Client};
 use clap::Parser;
 use lido_oracle_core::{
     generate_oracle_report, input::Input, mainnet, sepolia, soltypes::IBoundlessMarketCallback,
@@ -42,7 +43,7 @@ use std::{
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
 
-use crate::boundless::BoundlessConfig;
+use crate::boundless::{build_proof_boundless, BoundlessConfig};
 
 /// CLI for generating and submitting Lido oracle proofs
 #[derive(Parser, Debug)]
@@ -85,6 +86,23 @@ enum Command {
 
         #[clap(long = "out", short)]
         out_path: PathBuf,
+    },
+
+    /// Request a proof from a given input using Boundless
+    ProveBoundless {
+        /// slot at which to base the proofs
+        #[clap(long)]
+        slot: u64,
+
+        /// Ethereum beacon node HTTP RPC endpoint.
+        #[clap(long, env)]
+        beacon_rpc_url: Url,
+
+        #[clap(long = "out", short)]
+        out_path: PathBuf,
+
+        #[clap(flatten, next_help_heading = "Boundless Config")]
+        boundless_config: BoundlessConfig,
     },
     /// Submit an aggregation proof to the oracle contract
     Submit {
@@ -159,8 +177,28 @@ async fn main() -> Result<()> {
             out_path,
         } => {
             let input = build_input(slot, beacon_rpc_url, args.eth_rpc_url).await?;
-
             let proof = build_proof(image_id, elf, input, slot).await?;
+            write(out_path, bincode::serialize(&proof)?)?;
+        }
+        Command::ProveBoundless {
+            slot,
+            beacon_rpc_url,
+            out_path,
+            boundless_config,
+        } => {
+            let input = build_input(slot, beacon_rpc_url, args.eth_rpc_url).await?;
+
+            let boundless_client = Client::builder()
+                .with_deployment(boundless_config.deployment.clone())
+                .with_rpc_url(boundless_config.boundless_rpc_url.clone())
+                .with_private_key(boundless_config.boundless_private_key.clone())
+                .with_storage_provider(Some(storage_provider_from_env()?))
+                .build()
+                .await?;
+
+            let proof =
+                build_proof_boundless(&boundless_client, &boundless_config, input, slot).await?;
+
             write(out_path, bincode::serialize(&proof)?)?;
         }
         Command::Submit {

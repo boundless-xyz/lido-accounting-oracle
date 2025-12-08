@@ -94,10 +94,10 @@ pub async fn build_proof_boundless<'a>(
                 .ramp_up_period(boundless_config.ramp_up_period),
         );
 
+    let (request_id, expires_at) = boundless_client.submit_onchain(request).await?;
+
     let mut attempts = 0;
     while attempts < boundless_config.max_retries {
-        let (request_id, expires_at) = boundless_client.submit_onchain(request).await?;
-
         match boundless_client
             .wait_for_request_fulfillment(
                 request_id,
