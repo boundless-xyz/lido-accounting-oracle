@@ -26,10 +26,11 @@ use beacon_client::BeaconClient;
 use boundless_market::{storage::storage_provider_from_env, Client};
 use clap::Parser;
 use lido_oracle_core::{
-    generate_oracle_report, input::Input, mainnet, sepolia, soltypes::IBoundlessMarketCallback,
-    ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC,
+    generate_oracle_report, hoodi, input::Input, mainnet, sepolia,
+    soltypes::IBoundlessMarketCallback, ETH_HOODI_CHAIN_SPEC, ETH_MAINNET_CHAIN_SPEC,
+    ETH_SEPOLIA_CHAIN_SPEC,
 };
-use oracle_builder::{MAINNET_ELF, MAINNET_ID, SEPOLIA_ELF, SEPOLIA_ID};
+use oracle_builder::{HOODI_ELF, HOODI_ID, MAINNET_ELF, MAINNET_ID, SEPOLIA_ELF, SEPOLIA_ID};
 use risc0_steel::{config::ChainSpec, ethereum::EthEvmEnv, revm::primitives::hardfork::SpecId};
 use risc0_zkvm::{
     default_prover, sha::Digestible, ExecutorEnv, InnerReceipt, ProverOpts, VerifierContext,
@@ -379,6 +380,13 @@ fn chain_values_from_env() -> (
             &ETH_SEPOLIA_CHAIN_SPEC,
             sepolia::WITHDRAWAL_CREDENTIALS,
             sepolia::WITHDRAWAL_VAULT_ADDRESS,
+        ),
+        ref s if s == "hoodi" => (
+            image_id.unwrap_or(bytemuck::cast_slice(&HOODI_ID[..]).try_into().unwrap()),
+            HOODI_ELF,
+            &ETH_HOODI_CHAIN_SPEC,
+            hoodi::WITHDRAWAL_CREDENTIALS,
+            hoodi::WITHDRAWAL_VAULT_ADDRESS,
         ),
         other => panic!("Unsupported ETH_NETWORK: {}", other),
     }
