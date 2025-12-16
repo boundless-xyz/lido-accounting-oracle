@@ -91,7 +91,8 @@ pub async fn build_proof_boundless<'a>(
                 .max_price(boundless_config.max_eth_price)
                 .timeout(boundless_config.timeout)
                 .lock_timeout(boundless_config.lock_timeout)
-                .ramp_up_period(boundless_config.ramp_up_period),
+                .ramp_up_period(boundless_config.ramp_up_period)
+                .lock_collateral(boundless_config.lock_collateral),
         );
 
     let (request_id, expires_at) = boundless_client.submit_offchain(request).await?;
