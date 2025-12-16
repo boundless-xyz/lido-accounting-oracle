@@ -267,7 +267,7 @@ async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Re
 }
 
 async fn build_proof<'a>(
-    image_id: [u32; 8],
+    image_id: [u8; 32],
     elf: &[u8],
     input: Input<'a>,
     slot: u64,
@@ -297,7 +297,7 @@ async fn build_proof<'a>(
 }
 
 async fn submit_proof(
-    image_id: [u32; 8],
+    image_id: [u8; 32],
     eth_wallet_private_key: PrivateKeySigner,
     eth_rpc_url: Url,
     contract: Address,
@@ -309,11 +309,7 @@ async fn submit_proof(
         .connect_http(eth_rpc_url);
 
     let contract = IBoundlessMarketCallback::new(contract, provider.clone());
-    let call_builder = contract.handleProof(
-        B256::from_slice(bytemuck::cast_slice(&image_id[..])),
-        proof.journal,
-        proof.seal,
-    );
+    let call_builder = contract.handleProof(B256::from_slice(&image_id), proof.journal, proof.seal);
     let pending_tx = call_builder.send().await?;
     tracing::info!("Submitted proof with tx hash: {}", pending_tx.tx_hash());
     let tx_receipt = pending_tx.get_receipt().await?;
@@ -355,22 +351,30 @@ fn encode_seal(receipt: &risc0_zkvm::Receipt) -> Result<Bytes> {
 
 /// Read the ETH_NETWORK env var and return the corresponding chain values
 fn chain_values_from_env() -> (
-    [u32; 8],
+    [u8; 32],
     &'static [u8],
     &'static LazyLock<ChainSpec<SpecId>>,
     alloy_primitives::FixedBytes<32>,
     alloy_primitives::Address,
 ) {
+    let image_id = env::var("IMAGE_ID")
+        .map(|s| {
+            hex::decode(s)
+                .expect("IMAGE_ID env var is set but is not valid hex")
+                .try_into()
+                .expect("IMAGE_ID env var is set but is not 32 bytes")
+        })
+        .ok();
     match env::var("ETH_NETWORK").unwrap_or_else(|_| "mainnet".to_string()) {
         ref s if s == "mainnet" => (
-            MAINNET_ID,
+            image_id.unwrap_or(bytemuck::cast_slice(&MAINNET_ID[..]).try_into().unwrap()),
             MAINNET_ELF,
             &ETH_MAINNET_CHAIN_SPEC,
             mainnet::WITHDRAWAL_CREDENTIALS,
             mainnet::WITHDRAWAL_VAULT_ADDRESS,
         ),
         ref s if s == "sepolia" => (
-            SEPOLIA_ID,
+            image_id.unwrap_or(bytemuck::cast_slice(&SEPOLIA_ID[..]).try_into().unwrap()),
             SEPOLIA_ELF,
             &ETH_SEPOLIA_CHAIN_SPEC,
             sepolia::WITHDRAWAL_CREDENTIALS,

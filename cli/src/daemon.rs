@@ -8,7 +8,7 @@ use crate::{
     Command,
 };
 
-pub async fn run_daemon(args: Args, image_id: [u32; 8]) -> Result<()> {
+pub async fn run_daemon(args: Args, image_id: [u8; 32]) -> Result<()> {
     if let Command::Daemon {
         beacon_rpc_url,
         boundless_config,

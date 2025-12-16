@@ -2500,6 +2500,7 @@ dependencies = [
  "bytemuck",
  "clap",
  "ethereum-consensus 0.1.1 (git+https://github.com/boundless-xyz/ethereum-consensus.git?rev=1186e3e50bd10f00ef2caf1846ee8d62f5c8e4ef)",
+ "hex",
  "http-cache-reqwest",
  "lido_oracle_core",
  "log",

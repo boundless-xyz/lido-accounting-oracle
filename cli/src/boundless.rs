@@ -26,37 +26,37 @@ pub struct BoundlessConfig {
     pub image_url: Url,
 
     /// ETH threshold for submitting new requests.
-    #[clap(long, value_parser = parse_ether, default_value = "0.01")]
+    #[clap(env, long, value_parser = parse_ether, default_value = "0.01")]
     pub eth_threshold: U256,
 
     /// Maximum ETH price for requests.
-    #[clap(long, value_parser = parse_ether, default_value = "0.1")]
+    #[clap(env, long, value_parser = parse_ether, default_value = "0.00001")]
     pub max_eth_price: U256,
 
     /// Lock collateral in raw value.
     ///
     /// Default value is 1 ZKC
-    #[clap(long, default_value = "1000000000000000000")]
+    #[clap(long, env, default_value = "1000000000000000000")]
     pub lock_collateral: U256,
 
     /// Ramp up period in seconds.
-    #[clap(long, default_value = "180")]
+    #[clap(long, env, default_value = "180")]
     pub ramp_up_period: u32,
 
     /// Lock timeout in seconds.
-    #[clap(long, default_value = "300")]
+    #[clap(long, env, default_value = "300")]
     pub lock_timeout: u32,
 
     /// Request timeout in seconds.
-    #[clap(long, default_value = "600")]
+    #[clap(long, env, default_value = "600")]
     pub timeout: u32,
 
     /// Status check interval in seconds. Checks the status of the previously submitted requests.
-    #[clap(long, default_value = "20")]
+    #[clap(env, long, default_value = "20")]
     pub status_check_interval: u64,
 
     /// Maximum retry attempts for failed requests.
-    #[clap(long, default_value = "3")]
+    #[clap(env, long, default_value = "3")]
     pub max_retries: u32,
 
     /// Storage provider configuration to use for Boundless
@@ -94,7 +94,7 @@ pub async fn build_proof_boundless<'a>(
                 .ramp_up_period(boundless_config.ramp_up_period),
         );
 
-    let (request_id, expires_at) = boundless_client.submit_onchain(request).await?;
+    let (request_id, expires_at) = boundless_client.submit_offchain(request).await?;
 
     let mut attempts = 0;
     while attempts < boundless_config.max_retries {
