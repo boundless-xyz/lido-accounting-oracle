@@ -31,7 +31,7 @@ pub async fn run_daemon(args: Args, image_id: [u8; 32]) -> Result<()> {
         loop {
             match beacon_client.get_block_header("finalized").await {
                 Ok(block) => {
-                    let slot = block.message.slot;
+                    let slot = block.message.slot - 1; // This will usually return the first slot of an epoch, so we subtract 1 to get the last slot of the previous epoch
                     tracing::info!("Current beacon finalized slot: {}", slot);
                     if is_frame_boundary(slot, slots_per_frame) {
                         tracing::info!("Generating report for slot: {}", slot);
