@@ -14,6 +14,7 @@ pub async fn run_daemon(args: Args, image_id: [u8; 32]) -> Result<()> {
         boundless_config,
         eth_wallet_private_key,
         oracle_contract,
+        slots_per_frame,
     } = args.command
     {
         tracing::info!("Starting daemon: polling beacon head");
@@ -32,7 +33,7 @@ pub async fn run_daemon(args: Args, image_id: [u8; 32]) -> Result<()> {
                 Ok(block) => {
                     let slot = block.message.slot;
                     tracing::info!("Current beacon finalized slot: {}", slot);
-                    if is_frame_boundary(slot) {
+                    if is_frame_boundary(slot, slots_per_frame) {
                         tracing::info!("Generating report for slot: {}", slot);
 
                         let input =
@@ -68,9 +69,6 @@ pub async fn run_daemon(args: Args, image_id: [u8; 32]) -> Result<()> {
 }
 
 /// Returns true if the given slot is at at the end of a Lido frame
-fn is_frame_boundary(slot: u64) -> bool {
-    const SLOTS_PER_EPOCH: u64 = 32;
-    const EPOCHS_PER_FRAME: u64 = 225;
-    const SLOTS_PER_FRAME: u64 = SLOTS_PER_EPOCH * EPOCHS_PER_FRAME;
-    (slot + 1) % SLOTS_PER_FRAME == 0
+fn is_frame_boundary(slot: u64, slots_per_frame: u64) -> bool {
+    (slot + 1) % slots_per_frame == 0
 }

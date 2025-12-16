@@ -133,6 +133,10 @@ enum Command {
         /// SecondOpinionOracle contract address
         #[clap(long, env)]
         oracle_contract: Address,
+
+        /// Number of slots per Lido frame
+        #[clap(long, env, default_value_t = 7200)]
+        slots_per_frame: u64,
     },
 }
 
