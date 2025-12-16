@@ -15,9 +15,7 @@
 use alloy::hex::FromHex;
 use alloy_primitives::B256;
 use beacon_state::mainnet::BeaconState;
-use ethereum_consensus::{
-    phase0::SignedBeaconBlockHeader, primitives::Root, types::mainnet::BeaconBlock, Fork,
-};
+use ethereum_consensus::{phase0::SignedBeaconBlockHeader, primitives::Root, Fork};
 use http_cache_reqwest::{CACacheManager, Cache, CacheMode, HttpCache, HttpCacheOptions};
 use reqwest::IntoUrl;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
@@ -44,12 +42,6 @@ pub struct GetBlockHeaderResponse {
     pub root: Root,
     pub canonical: bool,
     pub header: SignedBeaconBlockHeader,
-}
-
-/// Response returned by the `get_block_header` API.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GetBlockResponse {
-    pub message: BeaconBlock,
 }
 
 /// Wrapper returned by the API calls.
