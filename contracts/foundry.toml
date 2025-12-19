@@ -7,10 +7,10 @@ ffi = true
 fs_permissions = [{ access = "read-write", path = "./"}]
 remappings = [
     "@openzeppelin-contracts-upgradeable/contracts/=dependencies/@openzeppelin-contracts-upgradeable-5.1.0/",
+    "@openzeppelin/contracts/=dependencies/@openzeppelin-contracts-5.1.0/",
     "boundless/=dependencies/boundless-1.1.1/contracts/src/",
     "forge-std/=dependencies/forge-std-1.9.5/src/",
     "openzeppelin/contracts/=dependencies/@openzeppelin-contracts-5.1.0/",
-    "@openzeppelin/contracts/=dependencies/@openzeppelin-contracts-5.1.0/",
     "risc0/=dependencies/risc0-2.1.0/contracts/src/",
 ]
 

@@ -38,9 +38,6 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IBoundlessMarketCallback, 
     /// @notice Image ID of the only zkVM guest to accept verification from.
     bytes32 public immutable IMAGE_ID;
 
-    /// @notice helper reference to the URL hosting the zkVM image
-    string public imageUrl;
-
     /// @notice Seconds per slot
     uint256 public constant SECONDS_PER_SLOT = 12;
 
@@ -64,10 +61,9 @@ contract SecondOpinionOracle is ISecondOpinionOracle, IBoundlessMarketCallback, 
         _disableInitializers();
     }
 
-    function initialize(address initialOwner, string calldata _imageUrl) public initializer {
+    function initialize(address initialOwner) public initializer {
         __Ownable_init(initialOwner);
         __UUPSUpgradeable_init();
-        imageUrl = _imageUrl;
     }
 
     /// @notice Update oracle report. This matches the callback signature expected by Boundless Market.

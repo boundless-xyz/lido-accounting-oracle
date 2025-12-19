@@ -4,15 +4,21 @@ set dotenv-required := true
 build:
     cargo build --release
 
+daemon: build
+    ./target/release/cli daemon
+
 ## Proving tasks
 
 prove slot: build
-    ./target/release/cli --slot {{slot}} prove --out ./membership_proof_{{slot}}.proof
+    ./target/release/cli prove --slot {{slot}}  --out ./proof_{{slot}}.proof
+
+prove-boundless slot: build
+    ./target/release/cli prove-boundless --slot {{slot}}  --out ./proof_{{slot}}.proof
 
 ## Submission to chain
 
-submit slot: build
-    ./target/release/cli --slot {{slot}} submit --proof ./aggregate_proof_{{slot}}.proof
+submit proof: build
+    ./target/release/cli submit --proof {{proof}}
 
 # Deploy contracts
 

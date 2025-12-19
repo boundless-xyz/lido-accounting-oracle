@@ -13,43 +13,43 @@
 // limitations under the License.
 
 mod beacon_client;
+mod boundless;
+mod daemon;
 
 use alloy::{
     network::EthereumWallet, primitives::Address, providers::ProviderBuilder,
     signers::local::PrivateKeySigner,
 };
-use alloy_primitives::B256;
-use anyhow::{bail, Context, Result};
+use alloy_primitives::{Bytes, B256};
+use anyhow::{bail, Result};
 use beacon_client::BeaconClient;
+use boundless_market::{storage::storage_provider_from_env, Client};
 use clap::Parser;
 use lido_oracle_core::{
-    generate_oracle_report,
-    input::Input,
-    mainnet::{WITHDRAWAL_CREDENTIALS, WITHDRAWAL_VAULT_ADDRESS},
-    soltypes::IBoundlessMarketCallback,
-    ETH_MAINNET_CHAIN_SPEC,
+    generate_oracle_report, hoodi, input::Input, mainnet, sepolia,
+    soltypes::IBoundlessMarketCallback, ETH_HOODI_CHAIN_SPEC, ETH_MAINNET_CHAIN_SPEC,
+    ETH_SEPOLIA_CHAIN_SPEC,
 };
-use oracle_builder::{MAINNET_ELF, MAINNET_ID};
-use risc0_steel::ethereum::EthEvmEnv;
+use oracle_builder::{HOODI_ELF, HOODI_ID, MAINNET_ELF, MAINNET_ID, SEPOLIA_ELF, SEPOLIA_ID};
+use risc0_steel::{config::ChainSpec, ethereum::EthEvmEnv, revm::primitives::hardfork::SpecId};
 use risc0_zkvm::{
-    default_prover, sha::Digestible, ExecutorEnv, InnerReceipt, ProverOpts, Receipt,
-    VerifierContext,
+    default_prover, sha::Digestible, ExecutorEnv, InnerReceipt, ProverOpts, VerifierContext,
 };
 use std::{
+    env,
     fs::{read, write},
     path::PathBuf,
+    sync::LazyLock,
 };
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use url::Url;
+
+use crate::boundless::{build_proof_boundless, BoundlessConfig};
 
 /// CLI for generating and submitting Lido oracle proofs
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// slot at which to base the proofs
-    #[clap(long)]
-    slot: u64,
-
     /// Ethereum Node endpoint.
     #[clap(long, env)]
     eth_rpc_url: Url,
@@ -64,6 +64,10 @@ enum Command {
     /// Generate the input needed to generate a proof
     /// This is to support proof generation using Boundless or Bonsai or other remote proving services
     GenInput {
+        /// slot at which to base the proofs
+        #[clap(long)]
+        slot: u64,
+
         /// Ethereum beacon node HTTP RPC endpoint.
         #[clap(long, env)]
         beacon_rpc_url: Url,
@@ -73,12 +77,33 @@ enum Command {
     },
     /// Generate a proof from a given input
     Prove {
+        /// slot at which to base the proofs
+        #[clap(long)]
+        slot: u64,
+
         /// Ethereum beacon node HTTP RPC endpoint.
         #[clap(long, env)]
         beacon_rpc_url: Url,
 
         #[clap(long = "out", short)]
         out_path: PathBuf,
+    },
+
+    /// Request a proof from a given input using Boundless
+    ProveBoundless {
+        /// slot at which to base the proofs
+        #[clap(long)]
+        slot: u64,
+
+        /// Ethereum beacon node HTTP RPC endpoint.
+        #[clap(long, env)]
+        beacon_rpc_url: Url,
+
+        #[clap(long = "out", short)]
+        out_path: PathBuf,
+
+        #[clap(flatten, next_help_heading = "Boundless Config")]
+        boundless_config: BoundlessConfig,
     },
     /// Submit an aggregation proof to the oracle contract
     Submit {
@@ -88,10 +113,30 @@ enum Command {
 
         /// SecondOpinionOracle contract address
         #[clap(long, env)]
-        contract: Address,
+        oracle_contract: Address,
 
         #[clap(long = "proof", short)]
         proof_path: PathBuf,
+    },
+    Daemon {
+        /// Ethereum beacon node HTTP RPC endpoint.
+        #[clap(long, env)]
+        beacon_rpc_url: Url,
+
+        #[clap(flatten, next_help_heading = "Boundless Config")]
+        boundless_config: BoundlessConfig,
+
+        /// Private key for Ethereum for submitting oracle reports
+        #[clap(long, env)]
+        eth_wallet_private_key: PrivateKeySigner,
+
+        /// SecondOpinionOracle contract address
+        #[clap(long, env)]
+        oracle_contract: Address,
+
+        /// Number of slots per Lido frame
+        #[clap(long, env, default_value_t = 7200)]
+        slots_per_frame: u64,
     },
 }
 
@@ -103,20 +148,22 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+    let (image_id, elf, spec, withdrawal_credentials, vault_address) = chain_values_from_env();
 
     match args.command {
         Command::GenInput {
+            slot,
             out_path,
             beacon_rpc_url,
         } => {
-            let input = build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?;
+            let input = build_input(slot, beacon_rpc_url, args.eth_rpc_url).await?;
 
             // sanity check
             let report = generate_oracle_report(
                 input.clone(),
-                &ETH_MAINNET_CHAIN_SPEC,
-                &WITHDRAWAL_CREDENTIALS,
-                WITHDRAWAL_VAULT_ADDRESS,
+                spec,
+                &withdrawal_credentials,
+                vault_address,
             )?;
             tracing::info!("Input generates report: {:?}", report);
 
@@ -130,26 +177,52 @@ async fn main() -> Result<()> {
             write(out_path, &vm_stdin)?;
         }
         Command::Prove {
+            slot,
             beacon_rpc_url,
             out_path,
         } => {
-            let input = build_input(args.slot, beacon_rpc_url, args.eth_rpc_url).await?;
+            let input = build_input(slot, beacon_rpc_url, args.eth_rpc_url).await?;
+            let proof = build_proof(image_id, elf, input, slot).await?;
+            write(out_path, bincode::serialize(&proof)?)?;
+        }
+        Command::ProveBoundless {
+            slot,
+            beacon_rpc_url,
+            out_path,
+            boundless_config,
+        } => {
+            let input = build_input(slot, beacon_rpc_url, args.eth_rpc_url).await?;
 
-            let proof = build_proof(input, args.slot).await?;
+            let boundless_client = Client::builder()
+                .with_deployment(boundless_config.deployment.clone())
+                .with_rpc_url(boundless_config.boundless_rpc_url.clone())
+                .with_private_key(boundless_config.boundless_private_key.clone())
+                .with_storage_provider(Some(storage_provider_from_env()?))
+                .build()
+                .await?;
+
+            let proof =
+                build_proof_boundless(&boundless_client, &boundless_config, input, slot).await?;
+
             write(out_path, bincode::serialize(&proof)?)?;
         }
         Command::Submit {
             eth_wallet_private_key,
             proof_path,
-            contract,
+            oracle_contract,
         } => {
+            let proof: Proof = bincode::deserialize(&read(proof_path)?)?;
             submit_proof(
+                image_id,
                 eth_wallet_private_key,
                 args.eth_rpc_url,
-                contract,
-                proof_path,
+                oracle_contract,
+                proof,
             )
             .await?
+        }
+        Command::Daemon { .. } => {
+            daemon::run_daemon(args, image_id).await?;
         }
     }
 
@@ -160,7 +233,8 @@ async fn main() -> Result<()> {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Proof {
     slot: u64,
-    receipt: Receipt,
+    journal: Bytes,
+    seal: Bytes,
 }
 
 #[tracing::instrument(skip(beacon_rpc_url, eth_rpc_url))]
@@ -173,11 +247,13 @@ async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Re
     // It is important to get the beacon block at slot + 1 to ensure it can reference the desired beacon slot via EIP-4788
     let execution_block_hash = beacon_client.get_eth1_block_hash_at_slot(slot + 1).await?;
 
+    let (_, _, spec, withdrawal_credentials, vault_address) = chain_values_from_env();
+
     // build the Steel input for reading the balance and block root
     let env = EthEvmEnv::builder()
         .provider(provider.clone())
         .beacon_api(beacon_rpc_url)
-        .chain_spec(&ETH_MAINNET_CHAIN_SPEC)
+        .chain_spec(&spec)
         .block_hash(B256::from_slice(execution_block_hash.as_slice()))
         .build()
         .await
@@ -187,15 +263,20 @@ async fn build_input<'a>(slot: u64, beacon_rpc_url: Url, eth_rpc_url: Url) -> Re
         env,
         &beacon_block_header.message,
         &beacon_state,
-        &WITHDRAWAL_CREDENTIALS,
-        WITHDRAWAL_VAULT_ADDRESS,
+        &withdrawal_credentials,
+        vault_address,
     )
     .await?;
 
     Ok(input)
 }
 
-async fn build_proof<'a>(input: Input<'a>, slot: u64) -> Result<Proof> {
+async fn build_proof<'a>(
+    image_id: [u8; 32],
+    elf: &[u8],
+    input: Input<'a>,
+    slot: u64,
+) -> Result<Proof> {
     let env = ExecutorEnv::builder()
         .write_frame(&bincode::serialize(&input)?)
         .build()?;
@@ -204,41 +285,36 @@ async fn build_proof<'a>(input: Input<'a>, slot: u64) -> Result<Proof> {
     let session_info = default_prover().prove_with_ctx(
         env,
         &VerifierContext::default(),
-        MAINNET_ELF,
+        elf,
         &ProverOpts::groth16(),
     )?;
     tracing::info!("total cycles: {}", session_info.stats.total_cycles);
 
+    tracing::info!("verifying locally for sanity check");
+    session_info.receipt.verify(image_id)?;
+    tracing::info!("Local verification passed :)");
+
     Ok(Proof {
         slot,
-        receipt: session_info.receipt,
+        seal: encode_seal(&session_info.receipt)?,
+        journal: session_info.receipt.journal.bytes.into(),
     })
 }
 
 async fn submit_proof(
+    image_id: [u8; 32],
     eth_wallet_private_key: PrivateKeySigner,
     eth_rpc_url: Url,
     contract: Address,
-    in_path: PathBuf,
+    proof: Proof,
 ) -> Result<()> {
     let wallet = EthereumWallet::from(eth_wallet_private_key);
     let provider = ProviderBuilder::new()
         .wallet(wallet)
         .connect_http(eth_rpc_url);
 
-    let proof: Proof = bincode::deserialize(&read(in_path)?)?;
-    tracing::info!("verifying locally for sanity check");
-    proof.receipt.verify(MAINNET_ID)?;
-    tracing::info!("Local verification passed :)");
-
-    let seal = encode_seal(&proof.receipt).context("encoding seal")?;
-
     let contract = IBoundlessMarketCallback::new(contract, provider.clone());
-    let call_builder = contract.handleProof(
-        B256::from_slice(bytemuck::cast_slice(&MAINNET_ID[..])),
-        proof.receipt.journal.bytes.into(),
-        seal.into(),
-    );
+    let call_builder = contract.handleProof(B256::from_slice(&image_id), proof.journal, proof.seal);
     let pending_tx = call_builder.send().await?;
     tracing::info!("Submitted proof with tx hash: {}", pending_tx.tx_hash());
     let tx_receipt = pending_tx.get_receipt().await?;
@@ -254,7 +330,7 @@ async fn submit_proof(
 /// circuits.
 ///
 /// copied here from risc0-ethereum-contracts crate as adding that crate creates a dependency hell with alloy
-fn encode_seal(receipt: &risc0_zkvm::Receipt) -> Result<Vec<u8>> {
+fn encode_seal(receipt: &risc0_zkvm::Receipt) -> Result<Bytes> {
     let seal = match receipt.inner.clone() {
         InnerReceipt::Fake(receipt) => {
             let seal = receipt.claim.digest().as_bytes().to_vec();
@@ -275,5 +351,47 @@ fn encode_seal(receipt: &risc0_zkvm::Receipt) -> Result<Vec<u8>> {
         }
         _ => bail!("Unsupported receipt type"),
     };
-    Ok(seal)
+    Ok(Bytes::from(seal))
+}
+
+/// Read the ETH_NETWORK env var and return the corresponding chain values
+fn chain_values_from_env() -> (
+    [u8; 32],
+    &'static [u8],
+    &'static LazyLock<ChainSpec<SpecId>>,
+    alloy_primitives::FixedBytes<32>,
+    alloy_primitives::Address,
+) {
+    let image_id = env::var("IMAGE_ID")
+        .map(|s| {
+            hex::decode(s)
+                .expect("IMAGE_ID env var is set but is not valid hex")
+                .try_into()
+                .expect("IMAGE_ID env var is set but is not 32 bytes")
+        })
+        .ok();
+    match env::var("ETH_NETWORK").unwrap_or_else(|_| "mainnet".to_string()) {
+        ref s if s == "mainnet" => (
+            image_id.unwrap_or(bytemuck::cast_slice(&MAINNET_ID[..]).try_into().unwrap()),
+            MAINNET_ELF,
+            &ETH_MAINNET_CHAIN_SPEC,
+            mainnet::WITHDRAWAL_CREDENTIALS,
+            mainnet::WITHDRAWAL_VAULT_ADDRESS,
+        ),
+        ref s if s == "sepolia" => (
+            image_id.unwrap_or(bytemuck::cast_slice(&SEPOLIA_ID[..]).try_into().unwrap()),
+            SEPOLIA_ELF,
+            &ETH_SEPOLIA_CHAIN_SPEC,
+            sepolia::WITHDRAWAL_CREDENTIALS,
+            sepolia::WITHDRAWAL_VAULT_ADDRESS,
+        ),
+        ref s if s == "hoodi" => (
+            image_id.unwrap_or(bytemuck::cast_slice(&HOODI_ID[..]).try_into().unwrap()),
+            HOODI_ELF,
+            &ETH_HOODI_CHAIN_SPEC,
+            hoodi::WITHDRAWAL_CREDENTIALS,
+            hoodi::WITHDRAWAL_VAULT_ADDRESS,
+        ),
+        other => panic!("Unsupported ETH_NETWORK: {}", other),
+    }
 }

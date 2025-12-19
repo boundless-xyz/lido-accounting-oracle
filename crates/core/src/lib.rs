@@ -30,7 +30,9 @@ pub use soltypes::Journal;
 use revm::primitives::hardfork::SpecId;
 use risc0_steel::config::{ChainSpec, ForkCondition};
 use risc0_steel::ethereum::EthChainSpec;
-pub use risc0_steel::ethereum::{ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC};
+pub use risc0_steel::ethereum::{
+    ETH_HOODI_CHAIN_SPEC, ETH_MAINNET_CHAIN_SPEC, ETH_SEPOLIA_CHAIN_SPEC,
+};
 #[cfg(feature = "builder")]
 use ssz_multiproofs::{Multiproof, MultiproofBuilder};
 use std::collections::BTreeMap;
@@ -62,6 +64,19 @@ pub mod sepolia {
 
     pub const WITHDRAWAL_VAULT_ADDRESS: Address =
         address!("De7318Afa67eaD6d6bbC8224dfCe5ed6e4b86d76");
+}
+
+pub mod hoodi {
+    use alloy_primitives::{address, Address};
+
+    pub const WITHDRAWAL_CREDENTIALS: alloy_primitives::B256 = alloy_primitives::B256::new([
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x44, 0x73, 0xdc,
+        0xdd, 0xbf, 0x77, 0x67, 0x9a, 0x64, 0x3b, 0xdb, 0x65, 0x4d, 0xbd, 0x86, 0xd6, 0x7f, 0x8d,
+        0x32, 0xf2,
+    ]);
+
+    pub const WITHDRAWAL_VAULT_ADDRESS: Address =
+        address!("0x4473dCDDbf77679A643BdB654dbd86D67F8d32f2");
 }
 
 pub static ANVIL_CHAIN_SPEC: LazyLock<EthChainSpec> = LazyLock::new(|| ChainSpec {
