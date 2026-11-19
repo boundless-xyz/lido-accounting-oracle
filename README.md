@@ -1,3 +1,5 @@
+> **Archived:** Historical reference for the Lido second-opinion oracle proposal. See [Lido’s update on the integration pause](https://research.lido.fi/t/proposal-for-a-lido-accounting-oracle-second-opinion/9534/9).
+
 # RISC Lido Accounting Oracle
 
 Implements a second-opinion accounting oracle for Lido compatible with [LIP-23](https://github.com/lidofinance/lido-improvement-proposals/blob/develop/LIPS/lip-23.md) using RISC Zero
